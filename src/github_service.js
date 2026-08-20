@@ -143,24 +143,50 @@ class GitHubService {
         }
     }
 
-    async searchPullRequests(username) {
+            async searchPullRequests(username, watchedDevs = {}) {
         const octokit = await this.getOctokit();
-        const params = {
-            q: `is:pr is:open involves:${username}`,
-            per_page: 100,
-            headers: { 'X-GitHub-Api-Version': API_VERSION },
-        };
-        if (typeof octokit.request === 'function') {
-            const response = await octokit.request('GET /search/issues', params);
-            this.rememberRateLimit(response);
-            return response.data?.items || [];
+        const queries = [`is:pr is:open involves:${username}`];
+
+        Object.keys(watchedDevs || {}).forEach(repoName => {
+            if (watchedDevs[repoName] && watchedDevs[repoName].length > 0) {
+                queries.push(`is:pr is:open repo:${repoName}`);
+            }
+        });
+
+        const allItems = [];
+        const seenUrls = new Set();
+
+        for (let i = 0; i < queries.length; i++) {
+            const q = queries[i];
+            const params = {
+                q,
+                per_page: 100,
+                headers: { 'X-GitHub-Api-Version': API_VERSION },
+            };
+            let items = [];
+            try {
+                if (typeof octokit.request === 'function') {
+                    const response = await octokit.request('GET /search/issues', params);
+                    this.rememberRateLimit(response);
+                    items = response.data?.items || [];
+                } else if (octokit.rest?.search?.issuesAndPullRequests) {
+                    const response = await octokit.rest.search.issuesAndPullRequests(params);
+                    this.rememberRateLimit(response);
+                    items = response.data?.items || [];
+                }
+            } catch (err) {
+                if (i === 0) throw err;
+            }
+
+            for (const item of items) {
+                const key = item.html_url || item.url || (item.repository_url ? item.repository_url + '#' + item.number : null) || item.id || String(item.number);
+                if (!seenUrls.has(key)) {
+                    seenUrls.add(key);
+                    allItems.push(item);
+                }
+            }
         }
-        if (octokit.rest?.search?.issuesAndPullRequests) {
-            const response = await octokit.rest.search.issuesAndPullRequests(params);
-            this.rememberRateLimit(response);
-            return response.data?.items || [];
-        }
-        return [];
+        return allItems;
     }
 
     async getPullRequestDiff(owner, repo, pull_number) {
@@ -239,7 +265,7 @@ class GitHubService {
                 resolved: [],
                 meta: { rateLimit: this.lastRateLimit, generatedAt: new Date().toISOString() },
             };
-            const items = await this.searchPullRequests(username);
+            const items = await this.searchPullRequests(username, watchedDevs);
             const now = Date.now();
 
             for (const item of items) {
