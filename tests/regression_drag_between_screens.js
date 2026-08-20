@@ -75,6 +75,7 @@ function testWorkAreaOrigin() {
 
 function testRendererPetToggle() {
     const listeners = new Map();
+    const windowListeners = new Map();
     const classes = new Set();
     const makeElement = () => ({
         style: {},
@@ -96,7 +97,7 @@ function testRendererPetToggle() {
         'bubble', 'alerts-section', 'logs-section', 'ai-settings-section', 'auth-section',
         'alerts-list', 'logs-list', 'user-header', 'token-input', 'auth-error-msg',
         'token-history-list', 'token-chips', 'pet', 'badge', 'toast-msg',
-        'chk-autopilot', 'sel-days-threshold', 'chk-recent-only', 'chk-show-viewed',
+        'chk-autopilot', 'sel-days-threshold', 'chk-recent-only', 'chk-show-waiting', 'chk-show-viewed',
         'tpl-review', 'tpl-autofix', 'tpl-conflict', 'ai-save-feedback', 'btn-refresh',
         'btn-logs', 'btn-ai', 'save-token-btn'
     ];
@@ -111,20 +112,28 @@ function testRendererPetToggle() {
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
         require: request => request === 'electron' ? { ipcRenderer, shell: { openExternal() {} } } : require(request),
         document,
-        window: { addEventListener: (type, callback) => listeners.set('window:' + type, callback) },
+        window: {
+            addEventListener: (type, callback) => windowListeners.set('window:' + type, callback),
+            removeEventListener: (type) => windowListeners.delete('window:' + type)
+        },
         console, setTimeout, clearTimeout, Map, Date, String, Boolean, Math
     }, { filename });
 
-    const petClick = listeners.get('pet:click');
-    assert.ok(typeof petClick === 'function', 'el listener de clic en la mascota debe existir');
+    const petPointerDown = listeners.get('pet:pointerdown');
+    assert.ok(typeof petPointerDown === 'function', 'el listener de pointerdown en la mascota debe existir');
     
-    // Primer clic: oculta el globo
-    petClick();
-    assert.ok(classes.has('hidden'), 'el primer clic debe agregar .hidden');
+    // Simular clic sin arrastre (pointerdown -> pointerup sin movimiento)
+    petPointerDown({ button: 0, screenX: 100, screenY: 100 });
+    const pointerUp = windowListeners.get('window:pointerup');
+    assert.ok(typeof pointerUp === 'function', 'pointerup debe registrarse en window');
+    
+    pointerUp();
+    assert.ok(classes.has('hidden'), 'el primer clic debe agregar .hidden para ocultar el globo');
 
-    // Segundo clic: muestra el globo
-    petClick();
-    assert.ok(!classes.has('hidden'), 'el segundo clic debe remover .hidden');
+    petPointerDown({ button: 0, screenX: 100, screenY: 100 });
+    const pointerUp2 = windowListeners.get('window:pointerup');
+    pointerUp2();
+    assert.ok(!classes.has('hidden'), 'el segundo clic debe restaurar el globo');
 }
 
 testWorkAreaOrigin();

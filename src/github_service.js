@@ -292,7 +292,7 @@ class GitHubService {
                     has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
                 };
 
-                // CICLO DE VIDA: Verificar si está marcado como RESUELTO
+                // CICLO DE VIDA: Si está registrado como RESUELTO y no hay nueva actividad ni conflictos
                 const resolvedRecord = resolvedPRs[url];
                 if (resolvedRecord && toDate(resolvedRecord.resolvedAt).getTime() >= latestActivityAt.getTime() && !common.has_conflict) {
                     alerts.resolved.push({
@@ -320,6 +320,7 @@ class GitHubService {
                     
                     let detail = null;
                     let requiresFix = true;
+                    let isWaitingOnly = false;
 
                     if (otherFormal?.state === 'CHANGES_REQUESTED') {
                         detail = `Cambios pedidos por @${otherFormal.user} ⚠️`;
@@ -327,27 +328,33 @@ class GitHubService {
                     } else if (otherFormal?.state === 'APPROVED') {
                         detail = `Aprobado por @${otherFormal.user} ✅ (Sin bloqueantes)`;
                         requiresFix = false;
+                        isWaitingOnly = true;
                     } else if (newOther) {
                         const bodyText = (latestOther.body || '').toLowerCase();
-                        if (bodyText.includes('aprobado') || bodyText.includes('lgtm') || bodyText.includes('buen trabajo') || bodyText.includes('sin bloqueantes')) {
-                            detail = `Comentario de @${latestOther.user} ✅ (Aprobado / Sin bloqueantes)`;
+                        const hasPending = bodyText.includes('pero') || bodyText.includes('falta') || bodyText.includes('cambia') || bodyText.includes('non-block');
+                        const isApproved = (bodyText.includes('aprobado') || bodyText.includes('lgtm') || bodyText.includes('buen trabajo') || bodyText.includes('sin bloqueantes')) && !hasPending;
+
+                        if (isApproved) {
+                            detail = `Comentario de @${latestOther.user} ✅ (Aprobado)`;
                             requiresFix = false;
+                            isWaitingOnly = true;
                         } else {
                             detail = `Comentario de @${latestOther.user} 💬`;
                             requiresFix = true;
                         }
-                    } else if (others.length > 0) {
-                        detail = `Actividad reciente en tu PR 💬`;
                     } else {
+                        // PR abierto esperando a que alguien lo revise; no requiere acción de mi parte
                         detail = `Abierto y esperando revisión ⏳`;
                         requiresFix = false;
+                        isWaitingOnly = true;
                     }
 
                     if (includeSeen || !seen) {
                         alerts.my_pr_activity.push({
                             ...common,
                             state: detail,
-                            requires_fix: requiresFix
+                            requires_fix: requiresFix,
+                            is_waiting_only: isWaitingOnly
                         });
                     }
                     continue;

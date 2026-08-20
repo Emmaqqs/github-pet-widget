@@ -233,7 +233,7 @@ class AIService {
         }
     }
 
-    // CLASIFICADOR SEMÁNTICO DE INTENCIÓN DE COMENTARIOS
+        // CLASIFICADOR SEMÁNTICO DE INTENCIÓN DE COMENTARIOS
     async classifyCommentIntent(commentBody) {
         if (!commentBody || typeof commentBody !== 'string' || commentBody.trim().length === 0) {
             return { type: 'INFORMATIONAL', summary: 'Sin comentarios', requiresChange: false };
@@ -242,17 +242,17 @@ class AIService {
         const prompt = `Analiza el siguiente comentario de Code Review dejado por un revisor en un Pull Request:
 
 COMENTARIO:
-"${commentBody.slice(0, 1500)}"
+"${commentBody.slice(0, 2000)}"
 
-Determina si el comentario:
-A) Es una aprobación o confirmación de resuelto sin bloqueantes (ejemplo: "Buen trabajo", "LGTM", "Aprobado", "Ya no tienes bloqueantes, pasa").
-B) Requiere un cambio de código obligatorio (ejemplo: "Falta validar X", "Corrige este endpoint", "Cambia el nombre").
-C) Es un comentario meramente informativo o una sugerencia no bloqueante.
+CRITERIOS ESTRICTOS:
+1. Si el comentario contiene CUALQUIER sugerencia de cambio, ajuste menor, detalle técnico, o nota pendiente (incluso si el revisor dice "aprobado", "LGTM", "buen trabajo" o "sin bloqueantes pero revisa X"): clasifícalo como REQUIRES_CODE_CHANGE con requiresChange: true.
+2. ÚNICAMENTE clasifica como APPROVED_NO_BLOCKERS cuando la aprobación sea 100% limpia y NO mencione absolutamente ningún cambio, sugerencia o detalle pendiente.
+3. Si es una simple pregunta o confirmación sin acciones, clasifícalo como INFORMATIONAL.
 
 Responde ÚNICAMENTE con un JSON válido con este formato:
 {
   "type": "APPROVED_NO_BLOCKERS" | "REQUIRES_CODE_CHANGE" | "INFORMATIONAL",
-  "summary": "1 frase corta resumiendo la intención",
+  "summary": "1 frase corta resumiendo la intención exacta",
   "requiresChange": true | false
 }`;
 
@@ -267,11 +267,12 @@ Responde ÚNICAMENTE con un JSON válido con este formato:
             };
         } catch (_) {
             const lower = commentBody.toLowerCase();
-            const isApproved = lower.includes('aprobado') || lower.includes('lgtm') || lower.includes('buen trabajo') || lower.includes('sin bloqueantes') || lower.includes('resuelto');
+            const hasPendingMention = lower.includes('pero') || lower.includes('falta') || lower.includes('cambia') || lower.includes('corrige') || lower.includes('revisa') || lower.includes('non-block') || lower.includes('detalle');
+            const isPureApproval = (lower.includes('aprobado') || lower.includes('lgtm') || lower.includes('buen trabajo') || lower.includes('sin bloqueantes')) && !hasPendingMention;
             return {
-                type: isApproved ? 'APPROVED_NO_BLOCKERS' : 'REQUIRES_CODE_CHANGE',
+                type: isPureApproval ? 'APPROVED_NO_BLOCKERS' : 'REQUIRES_CODE_CHANGE',
                 summary: commentBody.slice(0, 50),
-                requiresChange: !isApproved
+                requiresChange: !isPureApproval
             };
         }
     }

@@ -21,6 +21,7 @@ const body = document.body;
 const chkAutopilot = document.getElementById('chk-autopilot');
 const selDaysThreshold = document.getElementById('sel-days-threshold');
 const chkRecentOnly = document.getElementById('chk-recent-only');
+const chkShowWaiting = document.getElementById('chk-show-waiting');
 const chkShowViewed = document.getElementById('chk-show-viewed');
 
 let isBubbleVisible = true;
@@ -54,14 +55,42 @@ function isViewed(a) {
     return Boolean(seen && new Date(a.latest_activity_at || a.updated_at || 0) <= new Date(seen));
 }
 
-// Clic en la mascota para expandir / ocultar
-pet.addEventListener('click', (e) => {
-    isBubbleVisible = !isBubbleVisible;
-    if (isBubbleVisible) {
-        bubble.classList.remove('hidden');
-    } else {
-        bubble.classList.add('hidden');
-    }
+// =========================================================================
+// ARRASTRE FLUIDO DE LA MASCOTA Y TOGGLE CON CLIC
+// =========================================================================
+
+let isDraggingPet = false;
+let petDragStartX = 0;
+let petDragStartY = 0;
+
+pet.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    isDraggingPet = false;
+    petDragStartX = e.screenX;
+    petDragStartY = e.screenY;
+    ipcRenderer.send('start-window-drag', { x: e.screenX, y: e.screenY });
+    
+    const onPointerMove = (moveEv) => {
+        const dist = Math.hypot(moveEv.screenX - petDragStartX, moveEv.screenY - petDragStartY);
+        if (dist > 3) {
+            isDraggingPet = true;
+            ipcRenderer.send('window-drag-move', { screenX: moveEv.screenX, screenY: moveEv.screenY });
+        }
+    };
+
+    const onPointerUp = () => {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        if (!isDraggingPet) {
+            isBubbleVisible = !isBubbleVisible;
+            if (isBubbleVisible) bubble.classList.remove('hidden');
+            else bubble.classList.add('hidden');
+        }
+        ipcRenderer.send('end-window-drag');
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
 });
 
 pet.addEventListener('contextmenu', (e) => {
@@ -105,7 +134,7 @@ function openURL(url) { shell.openExternal(url); }
 window.openURL = openURL;
 
 // =========================================================================
-// FILTROS AVANZADOS (CATEGORÍAS Y 7 DÍAS)
+// FILTROS AVANZADOS (CATEGORÍAS, 7 DÍAS, EN ESPERA, VISTOS)
 // =========================================================================
 
 function setCategoryFilter(filter) {
@@ -117,14 +146,13 @@ function setCategoryFilter(filter) {
 }
 window.setCategoryFilter = setCategoryFilter;
 
-function toggleRecentOnly() {
-    renderAlerts();
-}
+function toggleRecentOnly() { renderAlerts(); }
 window.toggleRecentOnly = toggleRecentOnly;
 
-function toggleShowViewed() {
-    renderAlerts();
-}
+function toggleShowWaiting() { renderAlerts(); }
+window.toggleShowWaiting = toggleShowWaiting;
+
+function toggleShowViewed() { renderAlerts(); }
 window.toggleShowViewed = toggleShowViewed;
 
 // =========================================================================
@@ -176,7 +204,7 @@ ipcRenderer.on('action-completed', (event, result) => {
 });
 
 // =========================================================================
-// RENDERIZADO MODERNO DE TARJETAS DE ALERTAS
+// RENDERIZADO DE TARJETAS
 // =========================================================================
 
 function createAlertCard(a, viewed) {
@@ -200,7 +228,7 @@ function createAlertCard(a, viewed) {
     topRow.append(repoBadge, timeBadge);
     card.appendChild(topRow);
 
-    // Título del PR Clickable
+    // Título Clickable
     const titleLink = document.createElement('a');
     titleLink.className = 'card-title';
     titleLink.href = '#';
@@ -217,16 +245,16 @@ function createAlertCard(a, viewed) {
         card.appendChild(stateEl);
     }
 
-    // Acciones 1-Click & Botón Visto
+    // Acciones
     const actions = document.createElement('div');
     actions.className = 'card-actions';
 
     if (a.type === 'resolved') {
         const resolvedTag = document.createElement('span');
-        resolvedTag.style.fontSize = '10px';
+        resolvedTag.style.fontSize = '9.5px';
         resolvedTag.style.color = '#10b981';
         resolvedTag.style.fontWeight = '600';
-        resolvedTag.textContent = '✨ Resuelto y pusheado';
+        resolvedTag.textContent = '✨ Resuelto por IA';
         actions.appendChild(resolvedTag);
     } else {
         if (a.has_conflict) {
@@ -269,6 +297,7 @@ function createAlertCard(a, viewed) {
 function renderAlerts() {
     alertsList.replaceChildren();
     const showViewed = chkShowViewed.checked;
+    const showWaiting = chkShowWaiting.checked;
     const recentOnly = chkRecentOnly.checked;
 
     let items = [...alertStore.values()];
@@ -276,16 +305,23 @@ function renderAlerts() {
     // 1. Filtro de Vistos
     items = items.filter(a => showViewed ? isViewed(a) : !isViewed(a));
 
-    // 2. Filtro de 7 Días (o umbral configurado)
+    // 2. Filtro de 7 Días
     if (recentOnly) {
         items = items.filter(a => (a.days_ago || 0) <= daysThreshold);
     }
 
-    // 3. Filtro por Categoría
+    // 3. Filtro de "En Espera" (Si no está marcado, oculta PRs míos donde solo estoy esperando revisión sin acciones)
+    if (!showWaiting && currentCategoryFilter !== 'all') {
+        items = items.filter(a => !a.is_waiting_only);
+    } else if (!showWaiting && currentCategoryFilter === 'all') {
+        items = items.filter(a => !a.is_waiting_only || a.has_conflict);
+    }
+
+    // 4. Filtro por Categoría
     if (currentCategoryFilter === 'conflict') {
         items = items.filter(a => a.type === 'merge_conflicts');
     } else if (currentCategoryFilter === 'feedback') {
-        items = items.filter(a => a.type === 'my_pr_activity');
+        items = items.filter(a => a.type === 'my_pr_activity' && a.requires_fix);
     } else if (currentCategoryFilter === 'review') {
         items = items.filter(a => a.type === 'review_required' || a.type === 're_review_needed');
     } else if (currentCategoryFilter === 'resolved') {
@@ -300,8 +336,13 @@ function renderAlerts() {
         items.forEach(a => alertsList.appendChild(createAlertCard(a, showViewed)));
     }
 
-    const activeCount = [...alertStore.values()].filter(a => !isViewed(a) && a.type !== 'resolved').length;
-    updateBadge(activeCount);
+    // Badge solo contabiliza PRs urgentes con acciones reales requeridas
+    const actionableCount = [...alertStore.values()].filter(a => 
+        !isViewed(a) && 
+        a.type !== 'resolved' && 
+        !a.is_waiting_only
+    ).length;
+    updateBadge(actionableCount);
 }
 
 function refreshStatus() {
@@ -348,7 +389,7 @@ function renderLogs(logs) {
         item.innerHTML = `
             <div class="log-top">
                 <span>${escapeHtml(l.actionType || 'Acción')}</span>
-                <span style="font-size: 9px; color: #94a3b8;">${timeStr}</span>
+                <span style="font-size: 8.5px; color: #94a3b8;">${timeStr}</span>
             </div>
             <div class="log-msg">${escapeHtml(l.repository)} #${l.prNumber}: ${escapeHtml(l.message || '')}</div>
         `;
@@ -359,7 +400,7 @@ function renderLogs(logs) {
 ipcRenderer.on('action-logs-data', (event, logs) => renderLogs(logs));
 
 // =========================================================================
-// NAVEGACIÓN Y AJUSTES DE PROMPTS
+// NAVEGACIÓN Y AJUSTES
 // =========================================================================
 
 function showAlertsView() {
@@ -436,7 +477,7 @@ function renderTokenHistory(history) {
     history.forEach(h => {
         const btn = document.createElement('button');
         btn.className = 'filter-pill';
-        btn.style.fontSize = '9.5px';
+        btn.style.fontSize = '9px';
         btn.textContent = `@${h.username}`;
         btn.addEventListener('click', () => { tokenInput.value = h.token; saveToken(); });
         tokenChips.appendChild(btn);
@@ -490,7 +531,7 @@ ipcRenderer.on('status-update', (event, alerts) => {
     });
     incoming.forEach(a => alertStore.set(alertKey(a), a));
 
-    const active = incoming.filter(a => !isViewed(a) && a.type !== 'resolved');
+    const active = incoming.filter(a => !isViewed(a) && a.type !== 'resolved' && !a.is_waiting_only);
     const priority = active.some(a => a.type === 'merge_conflicts') ? 'state-conflict'
         : active.some(a => a.type === 'my_pr_activity') ? 'state-action'
         : active.some(a => a.type === 're_review_needed') ? 'state-rereview'

@@ -6,17 +6,15 @@
     <title>GitHub Pet Widget</title>
     <style>
         :root {
-            --bg-glass: rgba(255, 255, 255, 0.94);
-            --border-glass: rgba(226, 232, 240, 0.8);
+            --bg-glass: rgba(255, 255, 255, 0.95);
+            --border-glass: rgba(226, 232, 240, 0.85);
             --text-main: #0f172a;
             --text-muted: #64748b;
             --primary: #6366f1;
             --primary-hover: #4f46e5;
-            --primary-subtle: #e0e7ff;
             --accent-green: #10b981;
             --accent-amber: #f59e0b;
             --accent-red: #ef4444;
-            --accent-blue: #0284c7;
         }
 
         * {
@@ -44,33 +42,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: flex-end;
-            padding-bottom: 8px;
-        }
-
-        /* Handle de arrastre superior */
-        #drag-handle {
-            width: 90px;
-            height: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            -webkit-app-region: drag;
-            cursor: move;
-            color: #64748b;
-            font-size: 11px;
-            letter-spacing: 5px;
-            margin: 0 auto 4px;
-            background: rgba(255, 255, 255, 0.85);
-            border: 1px solid rgba(226, 232, 240, 0.8);
-            border-radius: 7px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
-            flex-shrink: 0;
-            transition: all 0.2s ease;
-        }
-        #drag-handle:hover {
-            color: #0f172a;
-            background: #ffffff;
-            box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+            padding-bottom: 6px;
         }
 
         /* Globo de diálogo principal */
@@ -80,18 +52,18 @@
             -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border-glass);
             border-radius: 16px;
-            padding: 12px;
-            width: 315px;
-            max-height: 310px;
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15), 0 4px 8px rgba(0, 0, 0, 0.05);
+            padding: 10px 12px 12px;
+            width: 320px;
+            max-height: 320px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16), 0 4px 8px rgba(0, 0, 0, 0.05);
             font-size: 12px;
             color: var(--text-main);
             display: flex;
             flex-direction: column;
             position: relative;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             z-index: 10;
-            transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.22s;
+            transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s;
             overflow: hidden;
         }
 
@@ -102,18 +74,33 @@
             transform: translateY(14px) scale(0.96);
         }
 
-        /* Banner de Notificación Toast */
+        /* Handle de arrastre integrado dentro del globo */
+        #drag-handle {
+            width: 70px;
+            height: 5px;
+            background: #cbd5e1;
+            border-radius: 3px;
+            margin: 0 auto 6px;
+            cursor: move;
+            -webkit-app-region: drag;
+            transition: background 0.15s ease;
+        }
+        #drag-handle:hover {
+            background: #94a3b8;
+        }
+
+        /* Banner Toast */
         #toast-msg {
             display: none;
             background: #0f172a;
             color: #f8fafc;
-            font-size: 11px;
+            font-size: 10.5px;
             font-weight: 500;
-            padding: 8px 12px;
+            padding: 7px 10px;
             border-radius: 8px;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             word-break: break-word;
-            box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
             line-height: 1.35;
             position: sticky;
             top: 0;
@@ -121,13 +108,13 @@
             animation: fadeIn 0.2s ease-in-out;
         }
 
-        /* Header del widget */
+        /* Header */
         .widget-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 8px;
-            padding-bottom: 6px;
+            margin-bottom: 6px;
+            padding-bottom: 4px;
             border-bottom: 1px solid rgba(226, 232, 240, 0.6);
         }
         .user-tag {
@@ -135,8 +122,8 @@
             color: var(--text-main);
             display: flex;
             align-items: center;
-            gap: 5px;
-            font-size: 12px;
+            gap: 4px;
+            font-size: 11.5px;
         }
         .header-actions {
             display: flex;
@@ -146,7 +133,7 @@
             background: rgba(241, 245, 249, 0.8);
             border: 1px solid rgba(203, 213, 225, 0.6);
             border-radius: 6px;
-            padding: 3px 6px;
+            padding: 2px 5px;
             font-size: 11px;
             cursor: pointer;
             color: var(--text-muted);
@@ -157,52 +144,48 @@
             color: var(--text-main);
         }
 
-        /* Barra de filtros por categoría */
+        /* Pestañas de Filtro Responsivas (con flex-wrap para que todas se vean) */
         .filter-tabs {
             display: flex;
-            gap: 4px;
+            flex-wrap: wrap;
+            gap: 3px;
             margin-bottom: 6px;
-            overflow-x: auto;
-            padding-bottom: 2px;
-            scrollbar-width: none;
         }
-        .filter-tabs::-webkit-scrollbar { display: none; }
         .filter-pill {
-            background: rgba(241, 245, 249, 0.7);
-            border: 1px solid rgba(226, 232, 240, 0.8);
-            border-radius: 12px;
-            padding: 3px 8px;
-            font-size: 10.5px;
-            font-weight: 500;
+            background: rgba(241, 245, 249, 0.8);
+            border: 1px solid rgba(226, 232, 240, 0.9);
+            border-radius: 10px;
+            padding: 2px 7px;
+            font-size: 10px;
+            font-weight: 600;
             color: var(--text-muted);
             cursor: pointer;
-            white-space: nowrap;
             transition: all 0.15s ease;
         }
         .filter-pill:hover {
-            background: rgba(226, 232, 240, 0.9);
+            background: rgba(226, 232, 240, 0.95);
             color: var(--text-main);
         }
         .filter-pill.active {
             background: var(--primary);
             color: #ffffff;
             border-color: var(--primary);
-            box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+            box-shadow: 0 2px 5px rgba(99, 102, 241, 0.3);
         }
 
-        /* Barra de filtro temporal 7 días y vistos */
+        /* Sub-Filtros */
         .sub-filters {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 10.5px;
+            margin-bottom: 6px;
+            font-size: 10px;
             color: var(--text-muted);
         }
         .checkbox-label {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
             cursor: pointer;
             font-weight: 500;
         }
@@ -211,38 +194,36 @@
             accent-color: var(--primary);
         }
 
-        /* Lista de Alertas scrolleable */
+        /* Lista de Alertas */
         #alerts-list {
             flex: 1;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 5px;
             padding-right: 2px;
         }
-        #alerts-list::-webkit-scrollbar {
-            width: 4px;
-        }
+        #alerts-list::-webkit-scrollbar { width: 4px; }
         #alerts-list::-webkit-scrollbar-thumb {
             background: rgba(148, 163, 184, 0.4);
             border-radius: 4px;
         }
 
-        /* Tarjeta de Alerta Rediseñada */
+        /* Tarjeta de Alerta */
         .alert-card {
             background: #ffffff;
             border: 1px solid rgba(226, 232, 240, 0.9);
-            border-radius: 10px;
-            padding: 8px 10px;
+            border-radius: 9px;
+            padding: 7px 9px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.03);
             display: flex;
             flex-direction: column;
-            gap: 4px;
+            gap: 3px;
             transition: all 0.15s ease;
         }
         .alert-card:hover {
             border-color: rgba(199, 210, 254, 1);
-            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.08);
+            box-shadow: 0 3px 8px rgba(99, 102, 241, 0.08);
         }
 
         .card-top {
@@ -252,7 +233,7 @@
             gap: 6px;
         }
         .repo-badge {
-            font-size: 9.5px;
+            font-size: 9px;
             font-weight: 600;
             color: #475569;
             background: #f1f5f9;
@@ -264,7 +245,7 @@
             max-width: 140px;
         }
         .time-badge {
-            font-size: 9.5px;
+            font-size: 9px;
             color: #94a3b8;
             font-weight: 500;
         }
@@ -273,7 +254,7 @@
             color: var(--text-main);
             text-decoration: none;
             font-weight: 600;
-            font-size: 11.5px;
+            font-size: 11px;
             line-height: 1.35;
             display: -webkit-box;
             -webkit-line-clamp: 2;
@@ -285,42 +266,41 @@
         }
 
         .card-state {
-            font-size: 10.5px;
+            font-size: 10px;
             font-weight: 500;
             color: var(--text-muted);
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
         }
 
         /* Botones de acción 1-Click */
         .card-actions {
             display: flex;
             align-items: center;
-            gap: 6px;
-            margin-top: 4px;
-            padding-top: 4px;
+            gap: 5px;
+            margin-top: 3px;
+            padding-top: 3px;
             border-top: 1px dashed rgba(226, 232, 240, 0.8);
         }
         .btn-action-ai {
             background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
             color: #ffffff;
             border: none;
-            border-radius: 6px;
-            padding: 4px 8px;
-            font-size: 10.5px;
+            border-radius: 5px;
+            padding: 3px 7px;
+            font-size: 10px;
             font-weight: 600;
             cursor: pointer;
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
             box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
             transition: all 0.15s ease;
         }
         .btn-action-ai:hover {
             filter: brightness(1.1);
             transform: translateY(-1px);
-            box-shadow: 0 3px 8px rgba(79, 70, 229, 0.3);
         }
         .btn-action-ai:disabled {
             background: #94a3b8;
@@ -330,22 +310,17 @@
         }
         .btn-action-conflict {
             background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
-            box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
-        }
-        .btn-action-conflict:hover {
-            box-shadow: 0 3px 8px rgba(220, 38, 38, 0.3);
         }
 
         .btn-seen-toggle {
             background: transparent;
             border: 1px solid rgba(203, 213, 225, 0.7);
-            border-radius: 6px;
-            padding: 3px 6px;
-            font-size: 9.5px;
+            border-radius: 5px;
+            padding: 2px 5px;
+            font-size: 9px;
             color: var(--text-muted);
             cursor: pointer;
             margin-left: auto;
-            transition: all 0.15s ease;
         }
         .btn-seen-toggle:hover {
             background: #f1f5f9;
@@ -361,8 +336,8 @@
         }
         .section-header {
             font-weight: 700;
-            font-size: 12px;
-            margin-bottom: 8px;
+            font-size: 11.5px;
+            margin-bottom: 6px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -370,10 +345,10 @@
         .log-item {
             background: #ffffff;
             border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 6px 8px;
-            margin-bottom: 4px;
-            font-size: 10px;
+            border-radius: 7px;
+            padding: 5px 7px;
+            margin-bottom: 3px;
+            font-size: 9.5px;
         }
         .log-top {
             display: flex;
@@ -391,25 +366,31 @@
         #pet-container {
             position: relative;
             display: inline-block;
-            -webkit-app-region: no-drag;
-            cursor: pointer;
-            padding: 4px;
-            margin-top: 4px;
+            cursor: grab;
+            padding: 2px;
+            margin-top: 2px;
             z-index: 20;
+            touch-action: none;
+        }
+        #pet-container:active {
+            cursor: grabbing;
         }
 
-        /* Mascota CSS */
+        /* Mascota */
         #pet {
-            width: 76px;
-            height: 76px;
+            width: 74px;
+            height: 74px;
             position: relative;
-            cursor: pointer;
+            cursor: grab;
             filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25));
             transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-            -webkit-app-region: no-drag;
+        }
+        #pet:active {
+            cursor: grabbing;
+            transform: scale(0.96);
         }
         #pet:hover {
-            transform: scale(1.06);
+            transform: scale(1.05);
         }
 
         .pet-ear {
@@ -417,9 +398,9 @@
             top: 4px;
             width: 0;
             height: 0;
-            border-left: 14px solid transparent;
-            border-right: 14px solid transparent;
-            border-bottom: 22px solid currentColor;
+            border-left: 13px solid transparent;
+            border-right: 13px solid transparent;
+            border-bottom: 20px solid currentColor;
             transition: border-bottom-color 0.4s ease;
         }
         .pet-ear.left { left: 4px; transform: rotate(-15deg); }
@@ -427,30 +408,30 @@
 
         .pet-body {
             position: absolute;
-            top: 14px;
+            top: 13px;
             left: 2px;
-            width: 72px;
-            height: 62px;
+            width: 70px;
+            height: 60px;
             background-color: currentColor;
-            border-radius: 36px 36px 28px 28px;
+            border-radius: 35px 35px 27px 27px;
             transition: background-color 0.4s ease;
         }
 
         .pet-eye {
             position: absolute;
-            top: 26px;
+            top: 25px;
             width: 7px;
             height: 7px;
             background-color: #0f172a;
             border-radius: 50%;
         }
-        .pet-eye.left { left: 22px; }
-        .pet-eye.right { right: 22px; }
+        .pet-eye.left { left: 21px; }
+        .pet-eye.right { right: 21px; }
 
         .pet-nose {
             position: absolute;
-            top: 32px;
-            left: 35px;
+            top: 31px;
+            left: 34px;
             width: 6px;
             height: 5px;
             background-color: #f43f5e;
@@ -466,13 +447,13 @@
             color: #ffffff;
             font-size: 10px;
             font-weight: 700;
-            min-width: 20px;
-            height: 20px;
-            border-radius: 10px;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 9px;
             display: none;
             align-items: center;
             justify-content: center;
-            padding: 0 4px;
+            padding: 0 3px;
             border: 2px solid #ffffff;
             box-shadow: 0 2px 6px rgba(0,0,0,0.25);
             z-index: 25;
@@ -487,61 +468,13 @@
         body.state-working #pet { color: #10b981; }
         body.state-disconnected #pet { color: #94a3b8; }
 
-        /* Formulario de Ajustes */
-        .form-group {
-            margin-bottom: 8px;
-        }
-        .form-group label {
-            display: block;
-            font-size: 10px;
-            font-weight: 600;
-            color: #475569;
-            margin-bottom: 3px;
-        }
-        .form-control {
-            width: 100%;
-            padding: 6px 8px;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            font-size: 11px;
-            font-family: inherit;
-        }
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-        }
-        .btn-primary {
-            background: var(--primary);
-            color: #ffffff;
-            border: none;
-            border-radius: 6px;
-            padding: 6px 12px;
-            font-weight: 600;
-            font-size: 11px;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-        .btn-primary:hover { background: var(--primary-hover); }
-        .btn-secondary {
-            background: #f1f5f9;
-            border: 1px solid #cbd5e1;
-            color: #475569;
-            border-radius: 6px;
-            padding: 6px 12px;
-            font-size: 11px;
-            cursor: pointer;
-        }
-
-        .empty-state {
-            text-align: center;
-            color: #94a3b8;
-            font-size: 11.5px;
-            padding: 24px 8px;
-        }
-        .empty-state.happy {
-            color: #10b981;
-            font-weight: 600;
-        }
+        .form-group { margin-bottom: 6px; }
+        .form-group label { display: block; font-size: 10px; font-weight: 600; color: #475569; margin-bottom: 2px; }
+        .form-control { width: 100%; padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 10.5px; font-family: inherit; }
+        .btn-primary { background: var(--primary); color: #ffffff; border: none; border-radius: 5px; padding: 5px 10px; font-weight: 600; font-size: 10.5px; cursor: pointer; }
+        .btn-secondary { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; border-radius: 5px; padding: 5px 10px; font-size: 10.5px; cursor: pointer; }
+        .empty-state { text-align: center; color: #94a3b8; font-size: 11px; padding: 20px 6px; }
+        .empty-state.happy { color: #10b981; font-weight: 600; }
 
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(-4px); }
@@ -551,11 +484,10 @@
 </head>
 <body class="state-happy">
     <div id="app">
-        <!-- Handle de arrastre superior nativo -->
-        <div id="drag-handle" title="Arrastrar ventana">⠿ ⠿ ⠿</div>
-
         <!-- Globo de diálogo -->
         <div id="bubble">
+            <!-- Barra de arrastre integrada dentro del modal -->
+            <div id="drag-handle" title="Arrastrar ventana"></div>
             <div id="toast-msg"></div>
 
             <!-- VISTA 1: ALERTAS Y PRS -->
@@ -578,13 +510,17 @@
                     <button class="filter-pill" data-filter="resolved" onclick="setCategoryFilter('resolved')">✅ Resueltos</button>
                 </div>
 
-                <!-- Sub-Filtros: 7 Días & Vistos -->
+                <!-- Sub-Filtros -->
                 <div class="sub-filters">
                     <label class="checkbox-label" title="Ocultar PRs inactivos por más de 7 días">
                         <input type="checkbox" id="chk-recent-only" checked onchange="toggleRecentOnly()">
-                        <span>📅 Últimos 7 días</span>
+                        <span>📅 7 días</span>
                     </label>
-                    <label class="checkbox-label" title="Mostrar PRs ya vistos">
+                    <label class="checkbox-label" title="Mostrar PRs que están esperando revisión de otros">
+                        <input type="checkbox" id="chk-show-waiting" onchange="toggleShowWaiting()">
+                        <span>⏳ En espera</span>
+                    </label>
+                    <label class="checkbox-label" title="Mostrar PRs marcados como vistos">
                         <input type="checkbox" id="chk-show-viewed" onchange="toggleShowViewed()">
                         <span>Vistos</span>
                     </label>
@@ -596,7 +532,7 @@
                 </div>
             </div>
 
-            <!-- VISTA 2: HISTORIAL DE ACCIONES IA -->
+            <!-- VISTA 2: HISTORIAL DE LOGS -->
             <div id="logs-section">
                 <div class="section-header">
                     <span>📋 Historial de Acciones IA</span>
@@ -610,7 +546,7 @@
                 </div>
             </div>
 
-            <!-- VISTA 3: AJUSTES DE PROMPTS Y AUTO-PILOT -->
+            <!-- VISTA 3: AJUSTES -->
             <div id="ai-settings-section">
                 <div class="section-header">
                     <span>🤖 Prompts & Auto-Pilot</span>
@@ -661,7 +597,7 @@
                 </div>
             </div>
 
-            <!-- VISTA 4: AUTENTICACIÓN / TOKEN -->
+            <!-- VISTA 4: TOKEN -->
             <div id="auth-section">
                 <div class="section-header">
                     <span>⚙️ Token de GitHub</span>
@@ -669,7 +605,7 @@
                 </div>
                 <div style="flex: 1;">
                     <div class="form-group">
-                        <label>Personal Access Token (classic / fine-grained):</label>
+                        <label>Personal Access Token:</label>
                         <input type="password" id="token-input" class="form-control" placeholder="ghp_...">
                     </div>
                     <div id="auth-error-msg" style="display: none; color: var(--accent-red); font-size: 10px; margin-bottom: 6px;"></div>
@@ -682,10 +618,10 @@
             </div>
         </div>
 
-        <!-- Mascota Interactiva -->
+        <!-- Mascota Interactiva y Arrastrable -->
         <div id="pet-container">
             <div id="badge">0</div>
-            <div id="pet" title="Clic para mostrar/ocultar panel">
+            <div id="pet" title="Clic para mostrar/ocultar panel • Arrastra para mover">
                 <div class="pet-ear left"></div>
                 <div class="pet-ear right"></div>
                 <div class="pet-body">

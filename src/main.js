@@ -478,6 +478,32 @@ ipcMain.on('show-context-menu', () => {
     menu.popup({ window: mainWindow });
 });
 
+
+let dragInitialWinPos = [0, 0];
+let dragInitialCursor = { x: 0, y: 0 };
+
+ipcMain.on('start-window-drag', (event, { x, y }) => {
+    if (mainWindow) {
+        dragInitialWinPos = mainWindow.getPosition();
+        dragInitialCursor = { x, y };
+    }
+});
+
+ipcMain.on('window-drag-move', (event, { screenX, screenY }) => {
+    if (mainWindow) {
+        const dx = screenX - dragInitialCursor.x;
+        const dy = screenY - dragInitialCursor.y;
+        mainWindow.setPosition(dragInitialWinPos[0] + dx, dragInitialWinPos[1] + dy);
+    }
+});
+
+ipcMain.on('end-window-drag', () => {
+    if (mainWindow) {
+        const [x, y] = mainWindow.getPosition();
+        saveConfig({ x, y });
+    }
+});
+
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
