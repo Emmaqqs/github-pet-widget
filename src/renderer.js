@@ -132,13 +132,18 @@ function triggerMergeConflictResolution(url, btn) {
     ipcRenderer.send('execute-merge-conflict-worktree', alert);
 }
 
+ipcRenderer.on('action-progress', (event, { text }) => {
+    showToast('⏳ ' + text);
+});
+
 ipcRenderer.on('action-completed', (event, result) => {
     if (result.success) {
         showToast(result.message || '🚀 ¡Tarea completada y pusheada a GitHub con éxito!');
         triggerHappyAnimation();
     } else {
-        showToast('❌ ' + (result.error || 'No se pudo completar la acción.'), true);
+        showToast('❌ ' + (result.error || result.message || 'No se pudo completar la acción.'), true);
     }
+    renderAlerts();
 });
 
 // Auto-Pilot Background Status

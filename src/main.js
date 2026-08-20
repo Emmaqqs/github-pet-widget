@@ -294,7 +294,10 @@ ipcMain.on('execute-autofix-worktree', async (event, pr) => {
             repository: pr.repository,
             pull_number: pr.number,
             head_branch: pr.head_branch || 'dev',
-            feedbackText: pr.state || 'Corregir feedback de revisión'
+            feedbackText: pr.state || 'Corregir feedback de revisión',
+            onProgress: (statusText) => {
+                event.reply('action-progress', { text: statusText });
+            }
         });
 
         if (result.pushed && github) {
@@ -324,7 +327,10 @@ ipcMain.on('execute-merge-conflict-worktree', async (event, pr) => {
             repository: pr.repository,
             pull_number: pr.number,
             head_branch: pr.head_branch || 'dev',
-            base_branch: pr.base_branch || 'main'
+            base_branch: pr.base_branch || 'main',
+            onProgress: (statusText) => {
+                event.reply('action-progress', { text: statusText });
+            }
         });
 
         event.reply('action-completed', {
