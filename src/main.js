@@ -2,14 +2,16 @@ const { app, BrowserWindow, ipcMain, screen, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const GitHubService = require('./github_service');
+const { AIService, DEFAULT_REVIEW_PROMPT_TEMPLATE, DEFAULT_AUTOFIX_COMMIT_TEMPLATE, DEFAULT_MERGE_CONFLICT_TEMPLATE, DEFAULT_AUTOREVIEW_EVAL_TEMPLATE } = require('./ai_service');
 
 let mainWindow;
 let github = null;
+let aiService = null;
 let currentToken = null;
 let pollTimer = null;
 let alwaysOnTop = true;
 let savePositionTimer = null;
-let dragOrigin = null;
+let dragOffset = null;
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
@@ -27,9 +29,12 @@ function loadConfig() {
 function saveConfig(data) {
     try {
         const current = loadConfig();
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify({ ...current, ...data }), 'utf-8');
+        const updated = { ...current, ...data };
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(updated, null, 2), 'utf-8');
+        return updated;
     } catch (e) {
         console.error("Error saving config:", e);
+        return loadConfig();
     }
 }
 
@@ -48,8 +53,8 @@ function createWindow() {
     alwaysOnTop = config.alwaysOnTop !== false;
 
     mainWindow = new BrowserWindow({
-        width: 320,
-        height: 380,
+        width: 330,
+        height: 420,
         x: winX,
         y: winY,
         frame: false,
@@ -64,6 +69,8 @@ function createWindow() {
     });
 
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
+
+    aiService = new AIService(config.ai_templates || {});
 
     // Guardar posición al terminar de mover (debounce 500ms)
     mainWindow.on('moved', () => {
@@ -137,46 +144,40 @@ ipcMain.on('set-token', async (event, token) => {
     await initializeWithToken(token);
 });
 
-// SA1: arrastre libre con delta de posición
-function getDragPoint(payload = {}) {
+// Arrastre multi-monitor sin bucle de DPI (Cálculo directo global)
+ipcMain.on('drag-start', (event, { clientX, clientY }) => {
+    if (!mainWindow) return;
+    dragOffset = {
+        x: Number.isFinite(clientX) ? clientX : 160,
+        y: Number.isFinite(clientY) ? clientY : 190
+    };
+});
+
+ipcMain.on('drag-move', () => {
+    if (!mainWindow || !dragOffset) return;
     try {
         const point = screen.getCursorScreenPoint();
-        if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) return point;
-    } catch (_) {}
-    const safePayload = payload || {};
-    const x = Number.isFinite(safePayload.x) ? safePayload.x : safePayload.screenX;
-    const y = Number.isFinite(safePayload.y) ? safePayload.y : safePayload.screenY;
-    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
-}
-
-ipcMain.on('drag-start', (event, payload) => {
-    if (!mainWindow) return;
-    dragOrigin = null;
-    const [x, y] = mainWindow.getPosition();
-    const point = getDragPoint(payload);
-    if (point) dragOrigin = { cursorX: point.x, cursorY: point.y, windowX: x, windowY: y };
+        if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
+            mainWindow.setPosition(
+                Math.round(point.x - dragOffset.x),
+                Math.round(point.y - dragOffset.y)
+            );
+        }
+    } catch (e) {
+        console.error("Error in drag-move:", e);
+    }
 });
 
-ipcMain.on('drag-move', (event, payload) => {
-    if (!mainWindow) return;
-    if (!dragOrigin) return;
-    const point = getDragPoint(payload);
-    if (!point) return;
-    mainWindow.setPosition(
-        Math.round(dragOrigin.windowX + point.x - dragOrigin.cursorX),
-        Math.round(dragOrigin.windowY + point.y - dragOrigin.cursorY)
-    );
+ipcMain.on('drag-end', () => {
+    dragOffset = null;
 });
-
-ipcMain.on('drag-end', () => { dragOrigin = null; });
 
 ipcMain.on('refresh-status', () => { updateStatus(); });
 
-// SA2: marcar PR como visto — solo persiste en disco; el renderer ya actualizó el DOM
+// Marcar PR como visto
 ipcMain.on('mark-seen', (event, { url, updatedAt }) => {
     const existing = loadConfig().seen_prs || {};
     saveConfig({ seen_prs: { ...existing, [url]: updatedAt } });
-    // updateStatus() intencionalmente omitido: evita el lag por llamadas reales a GitHub
 });
 
 ipcMain.on('mark-unseen', (event, { url }) => {
@@ -189,10 +190,65 @@ ipcMain.on('get-seen-prs', (event) => {
     event.reply('seen-prs', loadConfig().seen_prs || {});
 });
 
-// Historial de tokens: renderer lo solicita al abrir la pantalla de config
+// Historial de tokens
 ipcMain.on('get-token-history', (event) => {
     const history = loadConfig().token_history || [];
     event.reply('token-history', history);
+});
+
+// Configuración de Prompts y Plantillas de IA
+ipcMain.on('get-ai-templates', (event) => {
+    const config = loadConfig();
+    const service = new AIService(config.ai_templates || {});
+    event.reply('ai-templates-data', service.getTemplates());
+});
+
+ipcMain.on('save-ai-templates', (event, templates) => {
+    saveConfig({ ai_templates: templates });
+    if (aiService) aiService.config = templates;
+    event.reply('ai-templates-saved', { success: true });
+});
+
+ipcMain.on('reset-ai-templates', (event) => {
+    const defaultTemplates = {
+        review_prompt_template: DEFAULT_REVIEW_PROMPT_TEMPLATE,
+        autofix_commit_template: DEFAULT_AUTOFIX_COMMIT_TEMPLATE,
+        merge_conflict_template: DEFAULT_MERGE_CONFLICT_TEMPLATE,
+        autoreview_eval_template: DEFAULT_AUTOREVIEW_EVAL_TEMPLATE,
+    };
+    saveConfig({ ai_templates: defaultTemplates });
+    if (aiService) aiService.config = defaultTemplates;
+    event.reply('ai-templates-data', defaultTemplates);
+});
+
+// Auto-Review con IA
+ipcMain.on('request-auto-review', async (event, pr) => {
+    if (!github || !aiService) {
+        event.reply('auto-review-result', { success: false, error: 'Servicio no inicializado' });
+        return;
+    }
+    try {
+        const [owner, repo] = (pr.repository || '').split('/');
+        const diff = await github.getPullRequestDiff(owner, repo, pr.number);
+        const review = await aiService.generateCodeReview(pr, diff);
+        event.reply('auto-review-result', { success: true, pr, review });
+    } catch (err) {
+        console.error("Auto review error:", err);
+        event.reply('auto-review-result', { success: false, error: err.message });
+    }
+});
+
+// Auto-Pilot Re-Review
+ipcMain.on('request-autopilot-eval', async (event, { pr, previousComment }) => {
+    if (!github || !aiService) return;
+    try {
+        const [owner, repo] = (pr.repository || '').split('/');
+        const diff = await github.getPullRequestDiff(owner, repo, pr.number);
+        const evaluation = await aiService.evaluateAutoPilot(pr, previousComment, diff);
+        event.reply('autopilot-eval-result', { success: true, pr, evaluation });
+    } catch (err) {
+        console.error("Auto-pilot eval error:", err);
+    }
 });
 
 ipcMain.on('show-context-menu', () => {
@@ -203,7 +259,13 @@ ipcMain.on('show-context-menu', () => {
             click: () => updateStatus()
         },
         {
-            label: '⚙️ Configuración / Cambiar Token',
+            label: '🤖 Configurar Prompts e IA',
+            click: () => {
+                if (mainWindow) mainWindow.webContents.send('show-ai-settings');
+            }
+        },
+        {
+            label: '⚙️ Cambiar Token GitHub',
             click: () => {
                 if (mainWindow) mainWindow.webContents.send('show-settings');
             }

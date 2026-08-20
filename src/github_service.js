@@ -116,6 +116,26 @@ class GitHubService {
         return [];
     }
 
+    async getPullRequestDiff(owner, repo, pull_number) {
+        try {
+            const octokit = await this.getOctokit();
+            const response = await octokit.request('GET /repos/{owner}/{repo}/pulls/{pull_number}', {
+                owner,
+                repo,
+                pull_number,
+                headers: {
+                    accept: 'application/vnd.github.v3.diff',
+                    'X-GitHub-Api-Version': API_VERSION
+                }
+            });
+            this.rememberRateLimit(response);
+            return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+        } catch (error) {
+            console.error(`Error fetching diff for PR #${pull_number}:`, error.message);
+            return '';
+        }
+    }
+
     async getStatus(seenPRs = {}, includeSeen = false) {
         try {
             const octokit = await this.getOctokit();
@@ -126,6 +146,7 @@ class GitHubService {
 
             const username = this.username;
             const alerts = {
+                merge_conflicts: [],
                 review_required: [],
                 re_review_needed: [],
                 my_pr_activity: [],
@@ -224,7 +245,18 @@ class GitHubService {
                     repository: `${owner}/${repo}`,
                     author: loginOf(pr.user) || username,
                     latest_activity_at: latestActivityAt.toISOString(),
+                    has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
                 };
+
+                // Conflictos de Merge
+                if (pr.mergeable === false || pr.mergeable_state === 'dirty') {
+                    if (includeSeen || !seen) {
+                        alerts.merge_conflicts.push({
+                            ...common,
+                            state: '💥 Conflictos de Merge (Bloqueado)',
+                        });
+                    }
+                }
 
                 // CASO C: Mi propio PR
                 if (isSameUser(pr.user, username)) {
@@ -282,7 +314,7 @@ class GitHubService {
                 }
             }
 
-            for (const key of ['review_required', 're_review_needed', 'my_pr_activity']) {
+            for (const key of ['merge_conflicts', 'review_required', 're_review_needed', 'my_pr_activity']) {
                 alerts[key].sort((a, b) => toDate(b.latest_activity_at || b.updated_at) - toDate(a.latest_activity_at || a.updated_at));
             }
             alerts.meta.rateLimit = this.lastRateLimit;
