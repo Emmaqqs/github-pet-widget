@@ -20,23 +20,24 @@
             flex-direction: column;
             align-items: center;
             justify-content: flex-end;
-            padding-bottom: 20px;
+            padding-bottom: 12px;
         }
 
+        /* Handle de arrastre nativo de Windows (Zero-drift en cualquier monitor) */
         #drag-handle {
             width: 100%;
-            height: 18px;
+            height: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
+            -webkit-app-region: drag;
             cursor: move;
-            pointer-events: none;
-            color: rgba(0,0,0,0.18);
-            font-size: 13px;
+            color: rgba(0,0,0,0.22);
+            font-size: 12px;
             letter-spacing: 4px;
             flex-shrink: 0;
-            user-select: none;
         }
+        #drag-handle:hover { color: rgba(0,0,0,0.45); }
 
         #bubble {
             background: rgba(255, 255, 255, 0.96);
@@ -44,16 +45,26 @@
             border: 1px solid rgba(0,0,0,0.08);
             border-radius: 14px;
             padding: 12px;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             width: 290px;
             max-height: 270px;
             box-shadow: 0 8px 24px rgba(0,0,0,0.18);
             font-size: 12px;
             color: #24292f;
-            display: block;
             position: relative;
             -webkit-app-region: no-drag;
             overflow-y: auto;
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+            transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
+        }
+
+        #bubble.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transform: translateY(12px);
         }
 
         #bubble::after {
@@ -130,6 +141,7 @@
             display: inline-flex;
             align-items: center;
             gap: 3px;
+            -webkit-app-region: no-drag;
         }
         .btn-action-ai:hover { background: #dcfce7; }
 
@@ -155,6 +167,7 @@
             flex: 1;
             font-size: 10px;
             padding: 4px 5px;
+            -webkit-app-region: no-drag;
         }
         .filter-btn.active {
             background: #ddf4ff;
@@ -177,6 +190,7 @@
             font-size: 11px;
             font-family: monospace;
             outline: none;
+            -webkit-app-region: no-drag;
         }
 
         .token-input:focus {
@@ -194,8 +208,8 @@
             font-weight: 600;
             cursor: pointer;
             width: 100%;
+            -webkit-app-region: no-drag;
         }
-
         .btn-primary:hover { background: #2c974b; }
 
         .btn-secondary {
@@ -210,14 +224,12 @@
             text-align: center;
             display: block;
             text-decoration: none;
+            -webkit-app-region: no-drag;
         }
-
         .btn-secondary:hover { background: #eaedf0; }
 
         /* Plantillas de IA Formulario */
-        .template-field {
-            margin-bottom: 8px;
-        }
+        .template-field { margin-bottom: 8px; }
         .template-label {
             font-size: 10px;
             font-weight: 600;
@@ -235,6 +247,7 @@
             padding: 4px;
             resize: vertical;
             outline: none;
+            -webkit-app-region: no-drag;
         }
         .template-textarea:focus { border-color: #0969da; }
 
@@ -242,10 +255,10 @@
         #ai-modal {
             display: none;
             position: fixed;
-            top: 10px;
-            left: 10px;
-            right: 10px;
-            bottom: 10px;
+            top: 8px;
+            left: 8px;
+            right: 8px;
+            bottom: 8px;
             background: rgba(255, 255, 255, 0.98);
             border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
@@ -287,17 +300,8 @@
         }
 
         /* Historial de tokens */
-        #token-history-list {
-            display: none;
-            margin-top: 6px;
-        }
-
-        #token-history-list .history-label {
-            font-size: 10px;
-            color: #57606a;
-            margin-bottom: 4px;
-        }
-
+        #token-history-list { display: none; margin-top: 6px; }
+        #token-history-list .history-label { font-size: 10px; color: #57606a; margin-bottom: 4px; }
         .token-chip {
             display: inline-block;
             margin: 2px;
@@ -313,12 +317,9 @@
             overflow: hidden;
             text-overflow: ellipsis;
             vertical-align: middle;
+            -webkit-app-region: no-drag;
         }
-
-        .token-chip:hover {
-            background: #ddf4ff;
-            border-color: #0969da;
-        }
+        .token-chip:hover { background: #ddf4ff; border-color: #0969da; }
 
         /* Botón Marcar como Visto */
         .btn-seen {
@@ -333,31 +334,25 @@
             margin-left: 4px;
             flex-shrink: 0;
             line-height: 1.4;
+            -webkit-app-region: no-drag;
         }
-        .btn-seen:hover {
-            background: #f0fdf4;
-            border-color: #10b981;
-            color: #10b981;
-        }
-        .btn-unseen:hover {
-            background: #fff7ed;
-            border-color: #f59e0b;
-            color: #b45309;
-        }
+        .btn-seen:hover { background: #f0fdf4; border-color: #10b981; color: #10b981; }
+        .btn-unseen:hover { background: #fff7ed; border-color: #f59e0b; color: #b45309; }
 
-        /* Contenedor de la mascota con badge */
+        /* Contenedor de la mascota fijo y siempre visible */
         #pet-container {
             position: relative;
             display: inline-block;
-            -webkit-app-region: no-drag;
+            -webkit-app-region: drag;
             cursor: move;
-            padding: 2px;
+            padding: 4px;
+            margin-top: 4px;
         }
 
         #badge {
             position: absolute;
-            top: -4px;
-            right: -4px;
+            top: -2px;
+            right: -2px;
             background: #ef4444;
             color: white;
             font-size: 10px;
@@ -373,6 +368,7 @@
             box-shadow: 0 2px 6px rgba(0,0,0,0.3);
             z-index: 10;
             line-height: 1;
+            pointer-events: none;
         }
 
         /* Mascota CSS */
@@ -383,6 +379,7 @@
             cursor: move;
             filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25));
             transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+            -webkit-app-region: drag;
         }
 
         #pet:hover { transform: scale(1.08); }
@@ -466,36 +463,26 @@
         .state-disconnected .ear { border-bottom-color: #9ca3af; }
 
         /* Animaciones */
-        @keyframes bounce {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-6px); }
-        }
-
-        @keyframes blink {
-            0%, 96%, 100% { transform: scaleY(1); }
-            98% { transform: scaleY(0.1); }
-        }
-
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+        @keyframes blink { 0%, 96%, 100% { transform: scaleY(1); } 98% { transform: scaleY(0.1); } }
         @keyframes jump-alert {
-            0%   { transform: translateY(0) scale(1); }
-            20%  { transform: translateY(-16px) scale(1.12); }
-            40%  { transform: translateY(0) scale(0.96); }
-            55%  { transform: translateY(-8px) scale(1.06); }
-            70%  { transform: translateY(0) scale(1); }
-            85%  { transform: translateY(-3px) scale(1.02); }
+            0% { transform: translateY(0) scale(1); }
+            20% { transform: translateY(-16px) scale(1.12); }
+            40% { transform: translateY(0) scale(0.96); }
+            55% { transform: translateY(-8px) scale(1.06); }
+            70% { transform: translateY(0) scale(1); }
+            85% { transform: translateY(-3px) scale(1.02); }
             100% { transform: translateY(0) scale(1); }
         }
-
         @keyframes flash-glow {
-            0%   { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
-            30%  { filter: drop-shadow(0 0 22px rgba(245,158,11,0.95)) brightness(1.25); }
-            60%  { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
-            80%  { filter: drop-shadow(0 0 14px rgba(245,158,11,0.7)); }
+            0% { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
+            30% { filter: drop-shadow(0 0 22px rgba(245,158,11,0.95)) brightness(1.25); }
+            60% { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
+            80% { filter: drop-shadow(0 0 14px rgba(245,158,11,0.7)); }
             100% { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
         }
 
         .anim-bounce { animation: bounce 1.8s ease-in-out infinite; }
-
         .anim-new-alert {
             animation: jump-alert 0.75s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards,
                        flash-glow 0.75s ease-in-out forwards !important;
@@ -512,7 +499,7 @@
 </head>
 <body class="state-disconnected">
     <div id="app">
-        <!-- Handle de arrastre -->
+        <!-- Handle de arrastre nativo -->
         <div id="drag-handle">⠿ ⠿ ⠿</div>
 
         <div id="bubble">
@@ -597,7 +584,7 @@
             </div>
         </div>
 
-        <!-- Mascota con badge de pendientes -->
+        <!-- Mascota con badge de pendientes (Fija y siempre visible) -->
         <div id="pet-container">
             <div id="badge">0</div>
             <div id="pet" class="anim-bounce">

@@ -39,58 +39,14 @@ function isViewed(a) {
     return Boolean(seen && new Date(a.latest_activity_at || a.updated_at || 0) <= new Date(seen));
 }
 
-// -------------------------------------------------------------
-// ARRASTRE MULTI-MONITOR DIRECTO SIN DERIVA VERTICAL (ZERO DRIFT)
-// -------------------------------------------------------------
-let isDragging = false;
-let didDrag = false;
-let dragStartClientX = 0;
-let dragStartClientY = 0;
-let activePointerId = null;
-
-function endDrag() {
-    if (!isDragging) return;
-    if (activePointerId !== null && typeof petContainer.releasePointerCapture === 'function') {
-        try { petContainer.releasePointerCapture(activePointerId); } catch (_) {}
-    }
-    activePointerId = null;
-    isDragging = false;
-    ipcRenderer.send('drag-end');
-}
-
-petContainer.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || e.isPrimary === false) return;
-    isDragging = true;
-    didDrag = false;
-    activePointerId = e.pointerId ?? null;
-    dragStartClientX = e.clientX;
-    dragStartClientY = e.clientY;
-    
-    // Enviamos las coordenadas del clic relativas a la ventana (320x380)
-    ipcRenderer.send('drag-start', { clientX: e.clientX, clientY: e.clientY });
-    
-    if (activePointerId !== null && typeof petContainer.setPointerCapture === 'function') {
-        try { petContainer.setPointerCapture(activePointerId); } catch (_) {}
-    }
-    e.preventDefault();
-});
-
-document.addEventListener('pointermove', (e) => {
-    if (!isDragging) return;
-    const deltaX = e.clientX - dragStartClientX;
-    const deltaY = e.clientY - dragStartClientY;
-    if (Math.abs(deltaX) + Math.abs(deltaY) > 3) didDrag = true;
-    ipcRenderer.send('drag-move');
-});
-
-document.addEventListener('pointerup', endDrag);
-document.addEventListener('pointercancel', endDrag);
-window.addEventListener('blur', endDrag);
-
-pet.addEventListener('click', () => {
-    if (didDrag) { didDrag = false; return; }
+// Clic en la mascota para expandir / ocultar el globo suavemente (sin mover el contenedor)
+pet.addEventListener('click', (e) => {
     isBubbleVisible = !isBubbleVisible;
-    bubble.style.display = isBubbleVisible ? 'block' : 'none';
+    if (isBubbleVisible) {
+        bubble.classList.remove('hidden');
+    } else {
+        bubble.classList.add('hidden');
+    }
 });
 
 pet.addEventListener('contextmenu', (e) => {
@@ -138,7 +94,7 @@ function requestAutoReview(url) {
     const alert = alertStore.get(url);
     if (!alert) return;
     aiModalTitle.textContent = `🔍 Review IA: ${alert.title}`;
-    aiModalBody.textContent = '🤖 Analizando diff del PR con Gemini AI Studio...\n\n(Criterios: Seguridad, Rendimiento, Clean Code y Cobertura)';
+    aiModalBody.textContent = '🤖 Analizando diff del PR con IA...\n\n(Criterios: Seguridad, Rendimiento, Clean Code y Cobertura)';
     aiModal.style.display = 'flex';
     ipcRenderer.send('request-auto-review', alert);
 }

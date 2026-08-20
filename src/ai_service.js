@@ -1,6 +1,7 @@
 const https = require('https');
 const path = require('path');
 const fs = require('fs');
+const { exec } = require('child_process');
 
 const DEFAULT_REVIEW_PROMPT_TEMPLATE = `Actúa como un Senior Staff Software Engineer realizando un Code Review exhaustivo para el siguiente Pull Request.
 
@@ -48,14 +49,28 @@ Diff de los nuevos cambios:
 Dictamen: Responde indicando si el cambio cumple el requerimiento (CUMPLIDO) o si aún tiene detalles pendientes (PENDIENTE), con una breve justificación en 1 párrafo.
 `;
 
+const GEMINI_MODELS_POOL = [
+    'gemini-3.5-flash',
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-3.7-flash'
+];
+
 function loadGoogleKeys(explicitConfig = {}) {
     if (Array.isArray(explicitConfig.googleKeys) && explicitConfig.googleKeys.length > 0) {
         return explicitConfig.googleKeys;
     }
-    if (process.env.GEMINI_API_KEY) {
-        return [process.env.GEMINI_API_KEY];
-    }
-    // Carga dinámica desde la configuración local de OpenClaw (fuera del repositorio git)
+    try {
+        const appDataPath = path.join(process.env.APPDATA || '', 'github-pet-widget', 'config.json');
+        if (fs.existsSync(appDataPath)) {
+            const appConfig = JSON.parse(fs.readFileSync(appDataPath, 'utf8'));
+            if (Array.isArray(appConfig.googleKeys) && appConfig.googleKeys.length > 0) {
+                return appConfig.googleKeys;
+            }
+        }
+    } catch (_) {}
+
     try {
         const openClawConfigPath = 'D:\\OpenClaw\\data\\openclaw.json';
         if (fs.existsSync(openClawConfigPath)) {
@@ -70,27 +85,6 @@ function loadGoogleKeys(explicitConfig = {}) {
         }
     } catch (_) {}
 
-    // Carga desde el archivo de configuración de la app en AppData
-    try {
-        const appDataPath = require('path').join(process.env.APPDATA || '', 'github-pet-widget', 'config.json');
-        if (fs.existsSync(appDataPath)) {
-            const appConfig = JSON.parse(fs.readFileSync(appDataPath, 'utf8'));
-            if (Array.isArray(appConfig.googleKeys) && appConfig.googleKeys.length > 0) {
-                return appConfig.googleKeys;
-            }
-        }
-    } catch (_) {}
-
-    // Fallback de archivo auth.json local si existe
-    try {
-        const authPath = 'D:\\OpenClaw\\data\\auth.json';
-        if (fs.existsSync(authPath)) {
-            const auth = JSON.parse(fs.readFileSync(authPath, 'utf8'));
-            const keys = Object.values(auth).filter(v => typeof v === 'string' && v.startsWith('AQ.'));
-            if (keys.length > 0) return keys;
-        }
-    } catch (_) {}
-
     return [];
 }
 
@@ -99,6 +93,7 @@ class AIService {
         this.config = config;
         this.googleKeys = loadGoogleKeys(config);
         this.currentKeyIndex = 0;
+        this.currentModelIndex = 0;
     }
 
     getTemplates() {
@@ -119,26 +114,46 @@ class AIService {
         return result;
     }
 
-    async callGemini(prompt, model = 'gemini-2.5-flash') {
+    // Intenta usar OpenAI Luna vía OpenClaw CLI si está disponible
+    async callOpenAILuna(prompt) {
+        return new Promise((resolve, reject) => {
+            const sanitizedPrompt = prompt.replace(/"/g, '\\"').slice(0, 4000);
+            const cmd = `openclaw agent --model openai/gpt-5.6-luna --message "${sanitizedPrompt}"`;
+            exec(cmd, { cwd: 'D:\\OpenClaw', timeout: 45000 }, (error, stdout, stderr) => {
+                if (!error && stdout && stdout.length > 20) {
+                    resolve(stdout.trim());
+                } else {
+                    reject(new Error(stderr || error?.message || 'OpenClaw Luna no disponible'));
+                }
+            });
+        });
+    }
+
+    // Generador principal con rotación de modelos y claves de Gemini
+    async callGeminiWithRotation(prompt) {
         if (!this.googleKeys || this.googleKeys.length === 0) {
             this.googleKeys = loadGoogleKeys(this.config);
         }
-        if (!this.googleKeys || this.googleKeys.length === 0) {
-            throw new Error('No se encontraron claves de Google AI Studio configuradas.');
-        }
 
-        const attempts = this.googleKeys.length;
-        for (let i = 0; i < attempts; i++) {
-            const apiKey = this.googleKeys[this.currentKeyIndex];
-            try {
-                const responseText = await this._requestGemini(apiKey, model, prompt);
-                return responseText;
-            } catch (err) {
-                console.warn(`Gemini key index ${this.currentKeyIndex} failed: ${err.message}. Rotating key...`);
-                this.currentKeyIndex = (this.currentKeyIndex + 1) % this.googleKeys.length;
+        const totalModels = GEMINI_MODELS_POOL.length;
+        const totalKeys = this.googleKeys.length;
+
+        for (let m = 0; m < totalModels; m++) {
+            const model = GEMINI_MODELS_POOL[(this.currentModelIndex + m) % totalModels];
+            for (let k = 0; k < totalKeys; k++) {
+                const key = this.googleKeys[(this.currentKeyIndex + k) % totalKeys];
+                try {
+                    const result = await this._requestGemini(key, model, prompt);
+                    this.currentModelIndex = (this.currentModelIndex + m) % totalModels;
+                    this.currentKeyIndex = (this.currentKeyIndex + k) % totalKeys;
+                    return result;
+                } catch (err) {
+                    // Si falla por quota, timeout o 503, continúa al siguiente modelo/clave
+                    continue;
+                }
             }
         }
-        throw new Error('Todas las claves de Google AI Studio fallaron.');
+        throw new Error('Todos los modelos de Gemini y claves de Google AI Studio están temporalmente saturados.');
     }
 
     _requestGemini(apiKey, model, prompt) {
@@ -163,7 +178,7 @@ class AIService {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(payload)
                 },
-                timeout: 30000
+                timeout: 20000
             };
 
             const req = https.request(options, (res) => {
@@ -207,7 +222,13 @@ class AIService {
 
         const diffExcerpt = (diff || '').slice(0, 30000);
         const fullPrompt = basePrompt + '\n\n### DIFF DEL PULL REQUEST:\n```diff\n' + diffExcerpt + '\n```';
-        return await this.callGemini(fullPrompt);
+
+        // Intenta primero con OpenAI Luna si está disponible, si no, usa el pool rotativo de Gemini
+        try {
+            return await this.callOpenAILuna(fullPrompt);
+        } catch (_) {
+            return await this.callGeminiWithRotation(fullPrompt);
+        }
     }
 
     async evaluateAutoPilot(pr, previousComment, newDiff) {
@@ -217,7 +238,9 @@ class AIService {
             previous_comment: previousComment || 'Revisión solicitada',
             new_diff: (newDiff || '').slice(0, 15000)
         });
-        return await this.callGemini(fullPrompt);
+
+        // Para auditoría y auto-pilot, usamos Gemini (gratuito y ultra rápido)
+        return await this.callGeminiWithRotation(fullPrompt);
     }
 }
 

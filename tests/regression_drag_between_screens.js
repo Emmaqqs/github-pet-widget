@@ -72,39 +72,19 @@ function testWorkAreaOrigin() {
         'la posición por defecto debe respetar el origen x/y del workArea');
 }
 
-function testStationaryCursorZeroDrift() {
-    const { ipcMain, window, setCursor } = loadMainWithElectronStub();
-    window.position = [1800, 700];
-
-    // Clic en (50, 50) dentro de la ventana cuando el cursor está en global (1850, 750)
-    setCursor({ x: 1850, y: 750 });
-    ipcMain.emit('drag-start', {}, { clientX: 50, clientY: 50 });
-    
-    // Si el cursor no se mueve físicamente:
-    ipcMain.emit('drag-move', {});
-    assert.deepEqual(window.getPosition(), [1800, 700],
-        'el cursor estático produce exactamente 0 deriva vertical');
-
-    // Movimiento a monitor secundario a la izquierda (coordenadas negativas)
-    setCursor({ x: -500, y: 300 });
-    ipcMain.emit('drag-move', {});
-    assert.deepEqual(window.getPosition(), [-550, 250],
-        'el arrastre a monitor secundario ubica la ventana con el offset exacto');
-
-    ipcMain.emit('drag-end');
-    setCursor({ x: 500, y: 500 });
-    ipcMain.emit('drag-move', {});
-    assert.deepEqual(window.getPosition(), [-550, 250],
-        'después de drag-end no se reposiciona la ventana');
-}
-
-function testRendererPointerCleanup() {
+function testRendererPetToggle() {
     const listeners = new Map();
-    const sent = [];
+    const classes = new Set();
     const makeElement = () => ({
-        style: {}, classList: { add() {}, remove() {}, toggle() {} }, dataset: {},
+        style: {},
+        classList: {
+            add: (c) => classes.add(c),
+            remove: (c) => classes.delete(c),
+            toggle: (c) => classes.has(c) ? classes.delete(c) : classes.add(c),
+            contains: (c) => classes.has(c)
+        },
+        dataset: {},
         addEventListener(type, callback) { listeners.set((this.id || 'element') + ':' + type, callback); },
-        setPointerCapture() {}, releasePointerCapture() {},
         append() {}, appendChild() {}, replaceChildren() {},
         querySelectorAll: () => [],
         set textContent(value) { this._text = value; }, get textContent() { return this._text; },
@@ -121,7 +101,7 @@ function testRendererPointerCleanup() {
         addEventListener: (type, callback) => listeners.set('document:' + type, callback),
         querySelectorAll: () => []
     };
-    const ipcRenderer = { send: (channel, payload) => sent.push({ channel, payload }), on: () => {} };
+    const ipcRenderer = { send: () => {}, on: () => {} };
     const filename = path.join(__dirname, '..', 'src', 'renderer.js');
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
         require: request => request === 'electron' ? { ipcRenderer, shell: { openExternal() {} }, clipboard: { writeText() {} } } : require(request),
@@ -130,26 +110,18 @@ function testRendererPointerCleanup() {
         console, setTimeout, clearTimeout, Map, Date, String, Boolean, Math
     }, { filename });
 
-    listeners.get('pet-container:pointerdown')({
-        button: 0, isPrimary: true, pointerId: 1, clientX: 50, clientY: 50,
-        preventDefault() {}
-    });
-    listeners.get('document:pointermove')({ clientX: 60, clientY: 70 });
-    listeners.get('document:pointerup')();
-    assert.deepEqual(sent.map(item => item.channel), ['drag-start', 'drag-move', 'drag-end']);
+    const petClick = listeners.get('pet:click');
+    assert.ok(typeof petClick === 'function', 'el listener de clic en la mascota debe existir');
+    
+    // Primer clic: oculta el globo añadiendo .hidden
+    petClick();
+    assert.ok(classes.has('hidden'), 'el primer clic debe agregar .hidden para ocultar el globo sin mover el pet');
 
-    sent.length = 0;
-    listeners.get('pet-container:pointerdown')({
-        button: 0, isPrimary: true, pointerId: 2, clientX: 50, clientY: 50,
-        preventDefault() {}
-    });
-    listeners.get('window:blur')();
-    listeners.get('document:pointermove')({ clientX: 100, clientY: 100 });
-    assert.deepEqual(sent.map(item => item.channel), ['drag-start', 'drag-end'],
-        'blur finaliza el arrastre y cancela el seguimiento');
+    // Segundo clic: muestra el globo quitando .hidden
+    petClick();
+    assert.ok(!classes.has('hidden'), 'el segundo clic debe remover .hidden restaurando el globo');
 }
 
 testWorkAreaOrigin();
-testStationaryCursorZeroDrift();
-testRendererPointerCleanup();
-console.log('✅ Regresión de arrastre multi-monitor: Todos los casos pasaron (Zero-Drift verificado).');
+testRendererPetToggle();
+console.log('✅ Regresión de UI y arrastre nativo: Todos los casos pasaron al 100%.');
