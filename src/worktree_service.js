@@ -13,6 +13,88 @@ function execPromise(cmd, cwd) {
     });
 }
 
+// EJECUTOR DE PRUEBAS POLÍGLOTA ADAPTABLE A CADA TIPO DE PROYECTO
+async function detectAndRunTests(worktreePath, customCommand = null) {
+    if (customCommand && typeof customCommand === 'string' && customCommand.trim().length > 0) {
+        console.log(`[Test Runner] Ejecutando comando personalizado: ${customCommand}`);
+        return await execPromise(customCommand, worktreePath);
+    }
+
+    // 1. Docker / Docker Compose
+    const hasDockerCompose = fs.existsSync(path.join(worktreePath, 'docker-compose.yml')) ||
+                             fs.existsSync(path.join(worktreePath, 'docker-compose.yaml')) ||
+                             fs.existsSync(path.join(worktreePath, 'compose.yaml'));
+
+    if (hasDockerCompose) {
+        try {
+            console.log('[Test Runner] Proyecto Docker detectado. Verificando pruebas en contenedor...');
+            if (fs.existsSync(path.join(worktreePath, 'artisan'))) {
+                return await execPromise('docker compose exec -T app php artisan test || docker compose run --rm app php artisan test', worktreePath);
+            }
+            if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
+                return await execPromise('docker compose exec -T app npm test || docker compose run --rm app npm test', worktreePath);
+            }
+        } catch (_) {
+            console.log('[Test Runner] Ejecución por Docker no disponible; intentando ejecución local...');
+        }
+    }
+
+    // 2. Laravel / PHP
+    if (fs.existsSync(path.join(worktreePath, 'artisan'))) {
+        console.log('[Test Runner] Proyecto Laravel detectado.');
+        const pestBin = path.join(worktreePath, 'vendor', 'bin', 'pest');
+        const phpunitBin = path.join(worktreePath, 'vendor', 'bin', 'phpunit');
+
+        if (fs.existsSync(pestBin) || fs.existsSync(pestBin + '.bat')) {
+            return await execPromise('php artisan test || ./vendor/bin/pest || vendor\\bin\\pest.bat', worktreePath);
+        }
+        if (fs.existsSync(phpunitBin) || fs.existsSync(phpunitBin + '.bat')) {
+            return await execPromise('php artisan test || ./vendor/bin/phpunit || vendor\\bin\\phpunit.bat', worktreePath);
+        }
+        return await execPromise('php artisan test', worktreePath);
+    }
+
+    // 3. Node.js / Vue / React / Next.js / Vite
+    if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
+        try {
+            const pkg = JSON.parse(fs.readFileSync(path.join(worktreePath, 'package.json'), 'utf8'));
+            if (pkg.scripts?.test && !pkg.scripts.test.includes('no test specified')) {
+                console.log('[Test Runner] Proyecto Node/Vue detectado.');
+                if (fs.existsSync(path.join(worktreePath, 'pnpm-lock.yaml'))) {
+                    return await execPromise('pnpm test', worktreePath);
+                }
+                if (fs.existsSync(path.join(worktreePath, 'yarn.lock'))) {
+                    return await execPromise('yarn test', worktreePath);
+                }
+                return await execPromise('npm test', worktreePath);
+            }
+        } catch (_) {}
+    }
+
+    // 4. Python (pytest / unittest)
+    if (fs.existsSync(path.join(worktreePath, 'pytest.ini')) ||
+        fs.existsSync(path.join(worktreePath, 'pyproject.toml')) ||
+        fs.existsSync(path.join(worktreePath, 'setup.py'))) {
+        console.log('[Test Runner] Proyecto Python detectado.');
+        return await execPromise('pytest || python -m unittest', worktreePath);
+    }
+
+    // 5. Go
+    if (fs.existsSync(path.join(worktreePath, 'go.mod'))) {
+        console.log('[Test Runner] Proyecto Go detectado.');
+        return await execPromise('go test ./...', worktreePath);
+    }
+
+    // 6. Rust
+    if (fs.existsSync(path.join(worktreePath, 'Cargo.toml'))) {
+        console.log('[Test Runner] Proyecto Rust detectado.');
+        return await execPromise('cargo test', worktreePath);
+    }
+
+    console.log('[Test Runner] Proyecto sin suite de pruebas declarada; validación aprobada por defecto.');
+    return 'No tests declared.';
+}
+
 class WorktreeService {
     constructor(aiService) {
         this.aiService = aiService;
@@ -38,12 +120,12 @@ INSTRUCCIONES CRÍTICAS:
 3. Asegúrate de que la sintaxis sea 100% válida.
 4. Devuelve ÚNICAMENTE el código limpio final del archivo, sin explicaciones ni bloques markdown extra.`;
 
-        let resolved = await this.aiService.callGeminiWithRotation(prompt);
+        let resolved = await this.aiService.executePromptWithFallback(prompt);
         resolved = resolved.replace(/^\`\`\`[a-zA-Z]*\n/g, '').replace(/\n\`\`\`$/g, '');
         return resolved;
     }
 
-    async resolveMergeConflictsInWorktree({ repoPath = 'D:\\OpenClaw\\workspace\\github-pet-widget', pull_number, head_branch, base_branch = 'main' }) {
+    async resolveMergeConflictsInWorktree({ repoPath = 'D:\\OpenClaw\\workspace\\github-pet-widget', pull_number, head_branch, base_branch = 'main', customTestCmd = null }) {
         const worktreePath = path.join(this.baseWorktreeDir, `pr_${pull_number}_merge_${Date.now()}`);
         const result = { success: false, worktreePath, resolvedFiles: [], testsPassed: false, pushed: false };
 
@@ -66,7 +148,7 @@ INSTRUCCIONES CRÍTICAS:
 
                 if (conflictedFiles.length === 0) throw mergeErr;
 
-                // 4. Resolver cada archivo en conflicto con la IA
+                // 4. Resolver cada archivo en conflicto con la IA (OpenAI Luna / Gemini)
                 for (const file of conflictedFiles) {
                     const fullFilePath = path.join(worktreePath, file);
                     if (fs.existsSync(fullFilePath)) {
@@ -83,17 +165,13 @@ INSTRUCCIONES CRÍTICAS:
                 result.success = true;
             }
 
-            // 6. Ejecutar tests del proyecto
-            if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
-                try {
-                    await execPromise('npm test', worktreePath);
-                    result.testsPassed = true;
-                } catch (testErr) {
-                    result.testsPassed = false;
-                    result.testError = testErr.message;
-                }
-            } else {
+            // 6. Ejecutar tests según el tipo de proyecto (Laravel / Vue / Docker / Python)
+            try {
+                await detectAndRunTests(worktreePath, customTestCmd);
                 result.testsPassed = true;
+            } catch (testErr) {
+                result.testsPassed = false;
+                result.testError = testErr.message;
             }
 
             // 7. Push directo a GitHub si los tests pasaron
@@ -102,7 +180,7 @@ INSTRUCCIONES CRÍTICAS:
                 result.pushed = true;
                 result.message = `✅ Conflictos de merge resueltos y pusheados a ${head_branch} con tests pasando.`;
             } else {
-                result.message = '⚠️ Conflictos resueltos localmente pero los tests fallaron; no se realizó push.';
+                result.message = '⚠️ Conflictos resueltos localmente pero los tests fallaron; no se realizó push por seguridad.';
             }
 
             return result;
@@ -117,7 +195,7 @@ INSTRUCCIONES CRÍTICAS:
         }
     }
 
-    async autoFixReviewFeedbackInWorktree({ repoPath = 'D:\\OpenClaw\\workspace\\github-pet-widget', pull_number, head_branch, feedbackText, diff }) {
+    async autoFixReviewFeedbackInWorktree({ repoPath = 'D:\\OpenClaw\\workspace\\github-pet-widget', pull_number, head_branch, feedbackText, customTestCmd = null }) {
         const worktreePath = path.join(this.baseWorktreeDir, `pr_${pull_number}_fix_${Date.now()}`);
         const result = { success: false, worktreePath, modifiedFiles: [], testsPassed: false, pushed: false };
 
@@ -149,7 +227,7 @@ INSTRUCCIONES:
 Aplica los cambios necesarios para resolver el feedback del reviewer de forma limpia y robusta.
 Devuelve ÚNICAMENTE el código completo y final del archivo, sin explicaciones ni markdown extra.`;
 
-                        let fixedCode = await this.aiService.callGeminiWithRotation(prompt);
+                        let fixedCode = await this.aiService.executePromptWithFallback(prompt);
                         fixedCode = fixedCode.replace(/^\`\`\`[a-zA-Z]*\n/g, '').replace(/\n\`\`\`$/g, '');
                         fs.writeFileSync(fullPath, fixedCode, 'utf8');
                         await execPromise(`git add "${file}"`, worktreePath);
@@ -161,17 +239,13 @@ Devuelve ÚNICAMENTE el código completo y final del archivo, sin explicaciones 
                 await execPromise('git commit -m "fix: address review feedback automatically via OpenClaw AI"', worktreePath);
             }
 
-            // 5. Ejecutar tests
-            if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
-                try {
-                    await execPromise('npm test', worktreePath);
-                    result.testsPassed = true;
-                } catch (testErr) {
-                    result.testsPassed = false;
-                    result.testError = testErr.message;
-                }
-            } else {
+            // 5. Ejecutar tests según el stack del proyecto
+            try {
+                await detectAndRunTests(worktreePath, customTestCmd);
                 result.testsPassed = true;
+            } catch (testErr) {
+                result.testsPassed = false;
+                result.testError = testErr.message;
             }
 
             // 6. Push automático si los tests pasaron

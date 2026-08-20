@@ -40,15 +40,6 @@ const DEFAULT_MERGE_CONFLICT_TEMPLATE = `Analiza el conflicto de merge entre la 
 Prioriza la integridad lógica del sistema, preservando las nuevas funcionalidades sin borrar código crítico de la rama base.
 `;
 
-const DEFAULT_AUTOREVIEW_EVAL_TEMPLATE = `Evalúa si los nuevos commits subidos por @{{author}} resuelven satisfactoriamente el comentario de revisión previo:
-
-Comentario previo: "{{previous_comment}}"
-Diff de los nuevos cambios:
-{{new_diff}}
-
-Dictamen: Responde indicando si el cambio cumple el requerimiento (CUMPLIDO) o si aún tiene detalles pendientes (PENDIENTE), con una breve justificación en 1 párrafo.
-`;
-
 const GEMINI_MODELS_POOL = [
     'gemini-3.5-flash',
     'gemini-3-flash-preview',
@@ -101,7 +92,6 @@ class AIService {
             review_prompt_template: this.config.review_prompt_template || DEFAULT_REVIEW_PROMPT_TEMPLATE,
             autofix_commit_template: this.config.autofix_commit_template || DEFAULT_AUTOFIX_COMMIT_TEMPLATE,
             merge_conflict_template: this.config.merge_conflict_template || DEFAULT_MERGE_CONFLICT_TEMPLATE,
-            autoreview_eval_template: this.config.autoreview_eval_template || DEFAULT_AUTOREVIEW_EVAL_TEMPLATE,
         };
     }
 
@@ -114,54 +104,54 @@ class AIService {
         return result;
     }
 
-    // Intenta usar OpenAI Luna vía OpenClaw CLI si está disponible
+    // 1. LLAMADA PRIMARIA A OPENAI LUNA (VÍA OPENCLAW GATEWAY / CLI)
     async callOpenAILuna(prompt) {
         return new Promise((resolve, reject) => {
-            const sanitizedPrompt = prompt.replace(/"/g, '\\"').slice(0, 4000);
+            const sanitizedPrompt = prompt.replace(/"/g, '\\"').slice(0, 5000);
             const cmd = `openclaw agent --model openai/gpt-5.6-luna --message "${sanitizedPrompt}"`;
             exec(cmd, { cwd: 'D:\\OpenClaw', timeout: 45000 }, (error, stdout, stderr) => {
                 if (!error && stdout && stdout.length > 20) {
+                    console.log('[AI Engine] Respuesta generada exitosamente con OpenAI Luna.');
                     resolve(stdout.trim());
                 } else {
-                    reject(new Error(stderr || error?.message || 'OpenClaw Luna no disponible'));
+                    reject(new Error(stderr || error?.message || 'OpenClaw OpenAI Luna no respondió.'));
                 }
             });
         });
     }
 
-    // Generador principal con rotación de modelos y claves de Gemini
+    // 2. LLAMADA DE RESPALDO Y AUDITORÍA A GOOGLE GEMINI (POOL ROTATIVO)
     async callGeminiWithRotation(prompt) {
         if (!this.googleKeys || this.googleKeys.length === 0) {
             this.googleKeys = loadGoogleKeys(this.config);
         }
 
         const totalModels = GEMINI_MODELS_POOL.length;
-        const totalKeys = this.googleKeys.length;
+        const totalKeys = this.googleKeys.length > 0 ? this.googleKeys.length : 1;
 
         for (let m = 0; m < totalModels; m++) {
             const model = GEMINI_MODELS_POOL[(this.currentModelIndex + m) % totalModels];
             for (let k = 0; k < totalKeys; k++) {
-                const key = this.googleKeys[(this.currentKeyIndex + k) % totalKeys];
+                const key = this.googleKeys.length > 0 ? this.googleKeys[(this.currentKeyIndex + k) % totalKeys] : null;
+                if (!key) continue;
                 try {
                     const result = await this._requestGemini(key, model, prompt);
                     this.currentModelIndex = (this.currentModelIndex + m) % totalModels;
                     this.currentKeyIndex = (this.currentKeyIndex + k) % totalKeys;
+                    console.log(`[AI Engine] Respuesta generada exitosamente con Gemini (${model}).`);
                     return result;
                 } catch (err) {
-                    // Si falla por quota, timeout o 503, continúa al siguiente modelo/clave
                     continue;
                 }
             }
         }
-        throw new Error('Todos los modelos de Gemini y claves de Google AI Studio están temporalmente saturados.');
+        throw new Error('Todas las opciones de IA (OpenAI Luna y Gemini) fallaron o están saturadas.');
     }
 
     _requestGemini(apiKey, model, prompt) {
         return new Promise((resolve, reject) => {
             const payload = JSON.stringify({
-                contents: [{
-                    parts: [{ text: prompt }]
-                }],
+                contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: 0.2,
                     maxOutputTokens: 4096,
@@ -178,7 +168,7 @@ class AIService {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(payload)
                 },
-                timeout: 20000
+                timeout: 25000
             };
 
             const req = https.request(options, (res) => {
@@ -211,6 +201,16 @@ class AIService {
         });
     }
 
+    // MOTOR HÍBRIDO: PRIORIDAD 1 OPENAI LUNA -> PRIORIDAD 2 GEMINI MULTI-MODELO
+    async executePromptWithFallback(prompt) {
+        try {
+            return await this.callOpenAILuna(prompt);
+        } catch (lunaErr) {
+            console.log('[AI Engine] OpenAI Luna no disponible, ejecutando con Gemini Pool de respaldo...');
+            return await this.callGeminiWithRotation(prompt);
+        }
+    }
+
     async generateCodeReview(pr, diff) {
         const templates = this.getTemplates();
         const basePrompt = this.interpolate(templates.review_prompt_template, {
@@ -222,25 +222,7 @@ class AIService {
 
         const diffExcerpt = (diff || '').slice(0, 30000);
         const fullPrompt = basePrompt + '\n\n### DIFF DEL PULL REQUEST:\n```diff\n' + diffExcerpt + '\n```';
-
-        // Intenta primero con OpenAI Luna si está disponible, si no, usa el pool rotativo de Gemini
-        try {
-            return await this.callOpenAILuna(fullPrompt);
-        } catch (_) {
-            return await this.callGeminiWithRotation(fullPrompt);
-        }
-    }
-
-    async evaluateAutoPilot(pr, previousComment, newDiff) {
-        const templates = this.getTemplates();
-        const fullPrompt = this.interpolate(templates.autoreview_eval_template, {
-            author: pr.author,
-            previous_comment: previousComment || 'Revisión solicitada',
-            new_diff: (newDiff || '').slice(0, 15000)
-        });
-
-        // Para auditoría y auto-pilot, usamos Gemini (gratuito y ultra rápido)
-        return await this.callGeminiWithRotation(fullPrompt);
+        return await this.executePromptWithFallback(fullPrompt);
     }
 }
 
@@ -248,6 +230,5 @@ module.exports = {
     AIService,
     DEFAULT_REVIEW_PROMPT_TEMPLATE,
     DEFAULT_AUTOFIX_COMMIT_TEMPLATE,
-    DEFAULT_MERGE_CONFLICT_TEMPLATE,
-    DEFAULT_AUTOREVIEW_EVAL_TEMPLATE
+    DEFAULT_MERGE_CONFLICT_TEMPLATE
 };
