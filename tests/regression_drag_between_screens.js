@@ -48,6 +48,7 @@ function loadMainWithElectronStub({ cursorApi = true, workArea = null } = {}) {
         require: request => request === 'electron' ? electron
             : request === './github_service' ? class FakeGitHubService {}
             : request === './ai_service' ? { AIService: class { getTemplates() { return {}; } } }
+            : request === './worktree_service' ? class FakeWorktreeService {}
             : require(request),
         module,
         exports: module.exports,
@@ -93,8 +94,8 @@ function testRendererPetToggle() {
     const elements = {};
     const ids = ['bubble', 'alerts-section', 'alerts-list', 'user-header', 'auth-section',
         'ai-settings-section', 'token-input', 'auth-error-msg', 'token-history-list', 'token-chips', 'pet',
-        'pet-container', 'badge', 'refresh-btn', 'save-token-btn', 'ai-modal', 'ai-modal-title', 'ai-modal-body',
-        'tpl-review', 'tpl-autofix', 'tpl-conflict', 'tpl-autopilot', 'ai-save-feedback'];
+        'pet-container', 'badge', 'refresh-btn', 'save-token-btn', 'toast-msg',
+        'tpl-review', 'tpl-autofix', 'tpl-conflict', 'chk-autopilot', 'ai-save-feedback'];
     ids.forEach(id => { elements[id] = makeElement(); elements[id].id = id; });
     const document = {
         getElementById: id => elements[id],
@@ -104,7 +105,7 @@ function testRendererPetToggle() {
     const ipcRenderer = { send: () => {}, on: () => {} };
     const filename = path.join(__dirname, '..', 'src', 'renderer.js');
     vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
-        require: request => request === 'electron' ? { ipcRenderer, shell: { openExternal() {} }, clipboard: { writeText() {} } } : require(request),
+        require: request => request === 'electron' ? { ipcRenderer, shell: { openExternal() {} } } : require(request),
         document,
         window: { addEventListener: (type, callback) => listeners.set('window:' + type, callback) },
         console, setTimeout, clearTimeout, Map, Date, String, Boolean, Math

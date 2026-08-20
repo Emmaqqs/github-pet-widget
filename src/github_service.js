@@ -136,6 +136,43 @@ class GitHubService {
         }
     }
 
+    async postComment(owner, repo, issue_number, body) {
+        try {
+            const octokit = await this.getOctokit();
+            const response = await octokit.request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                owner,
+                repo,
+                issue_number,
+                body,
+                headers: { 'X-GitHub-Api-Version': API_VERSION }
+            });
+            this.rememberRateLimit(response);
+            return { success: true, commentId: response.data?.id };
+        } catch (error) {
+            console.error(`Error posting comment to #${issue_number}:`, error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async submitPullRequestReview(owner, repo, pull_number, body, event = 'COMMENT') {
+        try {
+            const octokit = await this.getOctokit();
+            const response = await octokit.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews', {
+                owner,
+                repo,
+                pull_number,
+                body,
+                event,
+                headers: { 'X-GitHub-Api-Version': API_VERSION }
+            });
+            this.rememberRateLimit(response);
+            return { success: true, reviewId: response.data?.id, html_url: response.data?.html_url };
+        } catch (error) {
+            console.error(`Error publishing review to PR #${pull_number}:`, error.message);
+            return { success: false, error: error.message };
+        }
+    }
+
     async getStatus(seenPRs = {}, includeSeen = false) {
         try {
             const octokit = await this.getOctokit();
@@ -241,6 +278,8 @@ class GitHubService {
                     url: pr.html_url || item.html_url,
                     updated_at: pr.updated_at,
                     head_sha: headSha,
+                    head_branch: pr.head?.ref || 'main',
+                    base_branch: pr.base?.ref || 'main',
                     number: item.number,
                     repository: `${owner}/${repo}`,
                     author: loginOf(pr.user) || username,

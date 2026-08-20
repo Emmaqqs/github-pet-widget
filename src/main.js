@@ -2,16 +2,18 @@ const { app, BrowserWindow, ipcMain, screen, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const GitHubService = require('./github_service');
+const WorktreeService = require('./worktree_service');
 const { AIService, DEFAULT_REVIEW_PROMPT_TEMPLATE, DEFAULT_AUTOFIX_COMMIT_TEMPLATE, DEFAULT_MERGE_CONFLICT_TEMPLATE, DEFAULT_AUTOREVIEW_EVAL_TEMPLATE } = require('./ai_service');
 
 let mainWindow;
 let github = null;
 let aiService = null;
+let worktreeService = null;
 let currentToken = null;
 let pollTimer = null;
 let alwaysOnTop = true;
 let savePositionTimer = null;
-let dragOffset = null;
+const autoPilotProcessing = new Set();
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
@@ -71,6 +73,7 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
     aiService = new AIService(config.ai_templates || {});
+    worktreeService = new WorktreeService(aiService);
 
     // Guardar posición al terminar de mover (debounce 500ms)
     mainWindow.on('moved', () => {
@@ -86,6 +89,9 @@ function createWindow() {
         const saved = loadConfig();
         mainWindow.webContents.send('always-on-top-state', alwaysOnTop);
         mainWindow.webContents.send('seen-prs', saved.seen_prs || {});
+        mainWindow.webContents.send('autopilot-config', {
+            enabled: Boolean(saved.autopilot_enabled)
+        });
         if (saved.token) {
             await initializeWithToken(saved.token);
         }
@@ -104,7 +110,7 @@ async function initializeWithToken(token) {
 
         currentToken = token;
 
-        // Historial de tokens: mover al frente, máximo 5 entradas
+        // Historial de tokens
         const cfg = loadConfig();
         const history = (cfg.token_history || []).filter(h => h.token !== token);
         history.unshift({ token, username: user.login, addedAt: new Date().toISOString() });
@@ -127,13 +133,64 @@ async function initializeWithToken(token) {
     }
 }
 
+async function runAutoPilotTasks(status) {
+    const cfg = loadConfig();
+    if (!cfg.autopilot_enabled || !github || !worktreeService) return;
+
+    // 1. Conflictos de Merge -> Auto-Resolve & Push
+    for (const pr of status.merge_conflicts || []) {
+        const key = `conflict_${pr.url}_${pr.updated_at}`;
+        if (!autoPilotProcessing.has(key)) {
+            autoPilotProcessing.add(key);
+            console.log(`[Auto-Pilot] Resolviendo conflictos para PR #${pr.number}...`);
+            mainWindow?.webContents.send('autopilot-status', { text: `🔀 Auto-Pilot: Resolviendo PR #${pr.number}...` });
+            
+            worktreeService.resolveMergeConflictsInWorktree({
+                pull_number: pr.number,
+                head_branch: pr.head_branch,
+                base_branch: pr.base_branch || 'main'
+            }).then(res => {
+                mainWindow?.webContents.send('autopilot-finished', { pr, result: res });
+                updateStatus();
+            }).catch(e => console.error('[Auto-Pilot] Error en merge:', e));
+        }
+    }
+
+    // 2. PRs con Cambios Solicitados -> Auto-Fix & Push
+    for (const pr of status.my_pr_activity || []) {
+        if (pr.state && pr.state.includes('Cambios pedidos')) {
+            const key = `fix_${pr.url}_${pr.updated_at}`;
+            if (!autoPilotProcessing.has(key)) {
+                autoPilotProcessing.add(key);
+                console.log(`[Auto-Pilot] Auto-Fix para PR #${pr.number}...`);
+                mainWindow?.webContents.send('autopilot-status', { text: `⚡ Auto-Pilot: Aplicando fixes a PR #${pr.number}...` });
+                
+                worktreeService.autoFixReviewFeedbackInWorktree({
+                    pull_number: pr.number,
+                    head_branch: pr.head_branch,
+                    feedbackText: pr.state
+                }).then(async (res) => {
+                    if (res.pushed) {
+                        const [owner, repo] = pr.repository.split('/');
+                        await github.postComment(owner, repo, pr.number, '🤖 *Auto-Pilot: He aplicado las correcciones solicitadas en un worktree y pusheado los cambios con tests pasando.*');
+                    }
+                    mainWindow?.webContents.send('autopilot-finished', { pr, result: res });
+                    updateStatus();
+                }).catch(e => console.error('[Auto-Pilot] Error en auto-fix:', e));
+            }
+        }
+    }
+}
+
 async function updateStatus() {
     if (!github || !mainWindow) return;
     try {
-        const seenPRs = loadConfig().seen_prs || {};
+        const cfg = loadConfig();
+        const seenPRs = cfg.seen_prs || {};
         const status = await github.getStatus(seenPRs, true);
         if (status) {
             mainWindow.webContents.send('status-update', status);
+            runAutoPilotTasks(status);
         }
     } catch (e) {
         console.error("Polling error:", e);
@@ -142,34 +199,6 @@ async function updateStatus() {
 
 ipcMain.on('set-token', async (event, token) => {
     await initializeWithToken(token);
-});
-
-// Arrastre multi-monitor sin bucle de DPI (Cálculo directo global)
-ipcMain.on('drag-start', (event, { clientX, clientY }) => {
-    if (!mainWindow) return;
-    dragOffset = {
-        x: Number.isFinite(clientX) ? clientX : 160,
-        y: Number.isFinite(clientY) ? clientY : 190
-    };
-});
-
-ipcMain.on('drag-move', () => {
-    if (!mainWindow || !dragOffset) return;
-    try {
-        const point = screen.getCursorScreenPoint();
-        if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
-            mainWindow.setPosition(
-                Math.round(point.x - dragOffset.x),
-                Math.round(point.y - dragOffset.y)
-            );
-        }
-    } catch (e) {
-        console.error("Error in drag-move:", e);
-    }
-});
-
-ipcMain.on('drag-end', () => {
-    dragOffset = null;
 });
 
 ipcMain.on('refresh-status', () => { updateStatus(); });
@@ -190,23 +219,29 @@ ipcMain.on('get-seen-prs', (event) => {
     event.reply('seen-prs', loadConfig().seen_prs || {});
 });
 
-// Historial de tokens
 ipcMain.on('get-token-history', (event) => {
     const history = loadConfig().token_history || [];
     event.reply('token-history', history);
 });
 
-// Configuración de Prompts y Plantillas de IA
+// Configuración de Prompts e IA y Auto-Pilot
 ipcMain.on('get-ai-templates', (event) => {
     const config = loadConfig();
     const service = new AIService(config.ai_templates || {});
-    event.reply('ai-templates-data', service.getTemplates());
+    event.reply('ai-templates-data', {
+        templates: service.getTemplates(),
+        autopilot_enabled: Boolean(config.autopilot_enabled)
+    });
 });
 
-ipcMain.on('save-ai-templates', (event, templates) => {
-    saveConfig({ ai_templates: templates });
+ipcMain.on('save-ai-templates', (event, { templates, autopilot_enabled }) => {
+    saveConfig({
+        ai_templates: templates,
+        autopilot_enabled: Boolean(autopilot_enabled)
+    });
     if (aiService) aiService.config = templates;
     event.reply('ai-templates-saved', { success: true });
+    updateStatus();
 });
 
 ipcMain.on('reset-ai-templates', (event) => {
@@ -216,59 +251,103 @@ ipcMain.on('reset-ai-templates', (event) => {
         merge_conflict_template: DEFAULT_MERGE_CONFLICT_TEMPLATE,
         autoreview_eval_template: DEFAULT_AUTOREVIEW_EVAL_TEMPLATE,
     };
-    saveConfig({ ai_templates: defaultTemplates });
+    saveConfig({ ai_templates: defaultTemplates, autopilot_enabled: false });
     if (aiService) aiService.config = defaultTemplates;
-    event.reply('ai-templates-data', defaultTemplates);
+    event.reply('ai-templates-data', {
+        templates: defaultTemplates,
+        autopilot_enabled: false
+    });
 });
 
-// Auto-Review con IA
-ipcMain.on('request-auto-review', async (event, pr) => {
+// ACCIONES 1-CLICK END-TO-END DIRECTAS (SIN OUTPUT MANUAL):
+
+// 1. Revisar y publicar automáticamente en GitHub
+ipcMain.on('execute-auto-review', async (event, pr) => {
     if (!github || !aiService) {
-        event.reply('auto-review-result', { success: false, error: 'Servicio no inicializado' });
+        event.reply('action-completed', { success: false, error: 'Servicio no inicializado' });
         return;
     }
     try {
         const [owner, repo] = (pr.repository || '').split('/');
         const diff = await github.getPullRequestDiff(owner, repo, pr.number);
-        const review = await aiService.generateCodeReview(pr, diff);
-        event.reply('auto-review-result', { success: true, pr, review });
+        const reviewText = await aiService.generateCodeReview(pr, diff);
+        const publishResult = await github.submitPullRequestReview(owner, repo, pr.number, reviewText, 'COMMENT');
+        
+        event.reply('action-completed', {
+            success: publishResult.success,
+            message: `✅ Review generado y publicado exitosamente en GitHub para PR #${pr.number}!`,
+            error: publishResult.error
+        });
+        updateStatus();
     } catch (err) {
-        console.error("Auto review error:", err);
-        event.reply('auto-review-result', { success: false, error: err.message });
+        event.reply('action-completed', { success: false, error: err.message });
     }
 });
 
-// Auto-Pilot Re-Review
-ipcMain.on('request-autopilot-eval', async (event, { pr, previousComment }) => {
-    if (!github || !aiService) return;
+// 2. Auto-Fix en Worktree + Push a la rama del PR
+ipcMain.on('execute-autofix-worktree', async (event, pr) => {
+    if (!worktreeService) {
+        event.reply('action-completed', { success: false, error: 'Worktree service no disponible' });
+        return;
+    }
     try {
-        const [owner, repo] = (pr.repository || '').split('/');
-        const diff = await github.getPullRequestDiff(owner, repo, pr.number);
-        const evaluation = await aiService.evaluateAutoPilot(pr, previousComment, diff);
-        event.reply('autopilot-eval-result', { success: true, pr, evaluation });
+        const result = await worktreeService.autoFixReviewFeedbackInWorktree({
+            pull_number: pr.number,
+            head_branch: pr.head_branch || 'main',
+            feedbackText: pr.state || 'Corregir feedback de revisión'
+        });
+
+        if (result.pushed && github) {
+            const [owner, repo] = (pr.repository || '').split('/');
+            await github.postComment(owner, repo, pr.number, '🤖 *He resuelto el feedback de revisión automáticamente en un worktree y pusheado los cambios con tests pasando.*');
+        }
+
+        event.reply('action-completed', {
+            success: result.pushed,
+            message: result.message || 'Fix aplicado y pusheado.',
+            error: result.error || (result.pushed ? null : 'Tests fallaron; no se hizo push')
+        });
+        updateStatus();
     } catch (err) {
-        console.error("Auto-pilot eval error:", err);
+        event.reply('action-completed', { success: false, error: err.message });
+    }
+});
+
+// 3. Resolver Conflictos de Merge en Worktree + Push
+ipcMain.on('execute-merge-conflict-worktree', async (event, pr) => {
+    if (!worktreeService) {
+        event.reply('action-completed', { success: false, error: 'Worktree service no disponible' });
+        return;
+    }
+    try {
+        const result = await worktreeService.resolveMergeConflictsInWorktree({
+            pull_number: pr.number,
+            head_branch: pr.head_branch || 'main',
+            base_branch: pr.base_branch || 'main'
+        });
+
+        event.reply('action-completed', {
+            success: result.pushed,
+            message: result.message || 'Conflictos resueltos y pusheados a GitHub.',
+            error: result.error || (result.pushed ? null : 'Tests fallaron; no se hizo push')
+        });
+        updateStatus();
+    } catch (err) {
+        event.reply('action-completed', { success: false, error: err.message });
     }
 });
 
 ipcMain.on('show-context-menu', () => {
     const pinLabel = alwaysOnTop ? '📌 Siempre visible: ON  ✓' : '📌 Siempre visible: OFF';
     const template = [
+        { label: '🔄 Actualizar ahora', click: () => updateStatus() },
         {
-            label: '🔄 Actualizar ahora',
-            click: () => updateStatus()
-        },
-        {
-            label: '🤖 Configurar Prompts e IA',
-            click: () => {
-                if (mainWindow) mainWindow.webContents.send('show-ai-settings');
-            }
+            label: '🤖 Configurar Prompts y Auto-Pilot',
+            click: () => { if (mainWindow) mainWindow.webContents.send('show-ai-settings'); }
         },
         {
             label: '⚙️ Cambiar Token GitHub',
-            click: () => {
-                if (mainWindow) mainWindow.webContents.send('show-settings');
-            }
+            click: () => { if (mainWindow) mainWindow.webContents.send('show-settings'); }
         },
         {
             label: pinLabel,
@@ -280,10 +359,7 @@ ipcMain.on('show-context-menu', () => {
             }
         },
         { type: 'separator' },
-        {
-            label: '❌ Cerrar Mascota',
-            click: () => app.quit()
-        }
+        { label: '❌ Cerrar Mascota', click: () => app.quit() }
     ];
 
     const menu = Menu.buildFromTemplate(template);

@@ -1,4 +1,4 @@
-const { ipcRenderer, shell, clipboard } = require('electron');
+const { ipcRenderer, shell } = require('electron');
 
 const bubble = document.getElementById('bubble');
 const alertsSection = document.getElementById('alerts-section');
@@ -13,19 +13,28 @@ const tokenChips = document.getElementById('token-chips');
 const pet = document.getElementById('pet');
 const petContainer = document.getElementById('pet-container');
 const badge = document.getElementById('badge');
+const toastMsg = document.getElementById('toast-msg');
 const body = document.body;
 
-// Modal de IA
-const aiModal = document.getElementById('ai-modal');
-const aiModalTitle = document.getElementById('ai-modal-title');
-const aiModalBody = document.getElementById('ai-modal-body');
+// Toggle de Auto-Pilot
+const chkAutopilot = document.getElementById('chk-autopilot');
 
 let isBubbleVisible = true;
 let prevTotalAlerts = -1;
 let alertFilter = 'active';
 const alertStore = new Map();
 const viewedAt = new Map();
-let currentAIReviewText = '';
+let toastTimer = null;
+
+function showToast(text, isError = false) {
+    if (toastTimer) clearTimeout(toastTimer);
+    toastMsg.textContent = text;
+    toastMsg.style.display = 'block';
+    toastMsg.style.background = isError ? '#991b1b' : '#1e293b';
+    toastTimer = setTimeout(() => {
+        toastMsg.style.display = 'none';
+    }, 4500);
+}
 
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
@@ -89,38 +98,59 @@ window.markUnseen = markUnseen;
 function openURL(url) { shell.openExternal(url); }
 window.openURL = openURL;
 
-// Acciones de IA
-function requestAutoReview(url) {
+// =========================================================================
+// ACCIONES 1-CLICK AUTÓNOMAS DIRECTAS (WORKTREE + TESTS + PUSH + GITHUB API)
+// =========================================================================
+
+function triggerAutoReview(url, btn) {
     const alert = alertStore.get(url);
     if (!alert) return;
-    aiModalTitle.textContent = `🔍 Review IA: ${alert.title}`;
-    aiModalBody.textContent = '🤖 Analizando diff del PR con IA...\n\n(Criterios: Seguridad, Rendimiento, Clean Code y Cobertura)';
-    aiModal.style.display = 'flex';
-    ipcRenderer.send('request-auto-review', alert);
+    btn.disabled = true;
+    btn.textContent = '⚙️ Publicando Review...';
+    body.className = 'state-working';
+    showToast(`🤖 Generando y publicando Code Review para PR #${alert.number}...`);
+    ipcRenderer.send('execute-auto-review', alert);
 }
-window.requestAutoReview = requestAutoReview;
 
-function closeAIModal() {
-    aiModal.style.display = 'none';
+function triggerAutoFixFeedback(url, btn) {
+    const alert = alertStore.get(url);
+    if (!alert) return;
+    btn.disabled = true;
+    btn.textContent = '⚙️ Auto-Fix en Worktree...';
+    body.className = 'state-working';
+    showToast(`⚡ Creando worktree, aplicando fixes y corriendo tests para PR #${alert.number}...`);
+    ipcRenderer.send('execute-autofix-worktree', alert);
 }
-window.closeAIModal = closeAIModal;
 
-function copyAIReview() {
-    if (currentAIReviewText) {
-        clipboard.writeText(currentAIReviewText);
-        const originalText = aiModalTitle.textContent;
-        aiModalTitle.textContent = '✅ ¡Copiado al portapapeles!';
-        setTimeout(() => { aiModalTitle.textContent = originalText; }, 1500);
-    }
+function triggerMergeConflictResolution(url, btn) {
+    const alert = alertStore.get(url);
+    if (!alert) return;
+    btn.disabled = true;
+    btn.textContent = '⚙️ Resolviendo en Worktree...';
+    body.className = 'state-working';
+    showToast(`🔀 Resolviendo conflictos en worktree y pusheando para PR #${alert.number}...`);
+    ipcRenderer.send('execute-merge-conflict-worktree', alert);
 }
-window.copyAIReview = copyAIReview;
 
-ipcRenderer.on('auto-review-result', (event, result) => {
+ipcRenderer.on('action-completed', (event, result) => {
     if (result.success) {
-        currentAIReviewText = result.review;
-        aiModalBody.textContent = result.review;
+        showToast(result.message || '🚀 ¡Tarea completada y pusheada a GitHub con éxito!');
+        triggerHappyAnimation();
     } else {
-        aiModalBody.textContent = `❌ Error al generar revisión: ${result.error || 'Ocurrió un error inesperado.'}`;
+        showToast('❌ ' + (result.error || 'No se pudo completar la acción.'), true);
+    }
+});
+
+// Auto-Pilot Background Status
+ipcRenderer.on('autopilot-status', (event, { text }) => {
+    body.className = 'state-working';
+    showToast(text);
+});
+
+ipcRenderer.on('autopilot-finished', (event, { pr, result }) => {
+    if (result?.pushed || result?.success) {
+        showToast(`✨ Auto-Pilot: PR #${pr.number} resuelto y pusheado con tests verdes.`);
+        triggerHappyAnimation();
     }
 });
 
@@ -158,28 +188,44 @@ function createAlertItem(a, viewed) {
         item.appendChild(detail);
     }
 
-    // Botones de acción IA
+    // Botones de acción 1-click end-to-end
     const actions = document.createElement('div');
     actions.className = 'alert-actions';
 
-    const reviewBtn = document.createElement('button');
-    reviewBtn.className = 'btn-action-ai';
-    reviewBtn.innerHTML = '<span>🤖</span> Auto-Review';
-    reviewBtn.addEventListener('click', () => requestAutoReview(alertKey(a)));
-    actions.appendChild(reviewBtn);
-
+    // Si tiene conflictos de merge -> Botón Resolver & Push
     if (a.has_conflict) {
         const conflictBtn = document.createElement('button');
-        conflictBtn.className = 'btn-action-ai';
-        conflictBtn.style.color = '#b91c1c';
-        conflictBtn.style.borderColor = '#fca5a5';
-        conflictBtn.style.background = '#fef2f2';
-        conflictBtn.innerHTML = '<span>🔀</span> Conflictos';
-        conflictBtn.addEventListener('click', () => requestAutoReview(alertKey(a)));
+        conflictBtn.className = 'btn-action-ai btn-action-conflict';
+        conflictBtn.innerHTML = '<span>🔀</span> Resolver & Push';
+        conflictBtn.title = 'Crear worktree aislado, resolver marcadores con IA, verificar tests y hacer git push';
+        conflictBtn.addEventListener('click', () => triggerMergeConflictResolution(alertKey(a), conflictBtn));
         actions.appendChild(conflictBtn);
     }
 
-    item.appendChild(actions);
+    // Si es mi PR y me dejaron cambios o feedback -> Botón Auto-Fix & Push
+    if (a.type === 'my_pr_activity' && a.state && (a.state.includes('Cambios pedidos') || a.state.includes('Comentario'))) {
+        const fixBtn = document.createElement('button');
+        fixBtn.className = 'btn-action-ai';
+        fixBtn.innerHTML = '<span>⚡</span> Auto-Fix & Push';
+        fixBtn.title = 'Crear worktree, aplicar correcciones de código solicitadas con IA, verificar tests y hacer git push';
+        fixBtn.addEventListener('click', () => triggerAutoFixFeedback(alertKey(a), fixBtn));
+        actions.appendChild(fixBtn);
+    }
+
+    // Si me asignaron para revisar -> Botón Revisar & Publicar
+    if (a.type === 'review_required' || a.type === 're_review_needed') {
+        const reviewBtn = document.createElement('button');
+        reviewBtn.className = 'btn-action-ai';
+        reviewBtn.innerHTML = '<span>🤖</span> Revisar & Publicar';
+        reviewBtn.title = 'Analizar diff con IA y publicar la revisión oficial directamente en GitHub';
+        reviewBtn.addEventListener('click', () => triggerAutoReview(alertKey(a), reviewBtn));
+        actions.appendChild(reviewBtn);
+    }
+
+    if (actions.children.length > 0) {
+        item.appendChild(actions);
+    }
+
     return item;
 }
 
@@ -229,7 +275,7 @@ function refreshStatus() {
 }
 window.refreshStatus = refreshStatus;
 
-// Configuración de Prompts e IA
+// Configuración de Prompts e IA y Auto-Pilot
 function showAISettings() {
     alertsSection.style.display = 'none';
     authSection.style.display = 'none';
@@ -245,26 +291,28 @@ function showAlertsView() {
 }
 window.showAlertsView = showAlertsView;
 
-ipcRenderer.on('ai-templates-data', (event, templates) => {
+ipcRenderer.on('ai-templates-data', (event, { templates, autopilot_enabled }) => {
     document.getElementById('tpl-review').value = templates.review_prompt_template || '';
     document.getElementById('tpl-autofix').value = templates.autofix_commit_template || '';
     document.getElementById('tpl-conflict').value = templates.merge_conflict_template || '';
-    document.getElementById('tpl-autopilot').value = templates.autoreview_eval_template || '';
+    chkAutopilot.checked = Boolean(autopilot_enabled);
 });
 
-function saveAITemplates() {
-    const templates = {
-        review_prompt_template: document.getElementById('tpl-review').value,
-        autofix_commit_template: document.getElementById('tpl-autofix').value,
-        merge_conflict_template: document.getElementById('tpl-conflict').value,
-        autoreview_eval_template: document.getElementById('tpl-autopilot').value,
+function saveAISettings() {
+    const payload = {
+        templates: {
+            review_prompt_template: document.getElementById('tpl-review').value,
+            autofix_commit_template: document.getElementById('tpl-autofix').value,
+            merge_conflict_template: document.getElementById('tpl-conflict').value,
+        },
+        autopilot_enabled: chkAutopilot.checked,
     };
-    ipcRenderer.send('save-ai-templates', templates);
+    ipcRenderer.send('save-ai-templates', payload);
     const feedback = document.getElementById('ai-save-feedback');
     feedback.style.display = 'block';
     setTimeout(() => { feedback.style.display = 'none'; }, 2000);
 }
-window.saveAITemplates = saveAITemplates;
+window.saveAISettings = saveAISettings;
 
 function resetAITemplates() {
     ipcRenderer.send('reset-ai-templates');
@@ -272,7 +320,7 @@ function resetAITemplates() {
     feedback.textContent = '🔄 Valores por defecto restaurados';
     feedback.style.display = 'block';
     setTimeout(() => {
-        feedback.textContent = '✅ Prompts guardados correctamente';
+        feedback.textContent = '✅ Ajustes guardados correctamente';
         feedback.style.display = 'none';
     }, 2000);
 }
