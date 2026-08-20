@@ -233,6 +233,49 @@ class AIService {
         }
     }
 
+    // CLASIFICADOR SEMÁNTICO DE INTENCIÓN DE COMENTARIOS
+    async classifyCommentIntent(commentBody) {
+        if (!commentBody || typeof commentBody !== 'string' || commentBody.trim().length === 0) {
+            return { type: 'INFORMATIONAL', summary: 'Sin comentarios', requiresChange: false };
+        }
+
+        const prompt = `Analiza el siguiente comentario de Code Review dejado por un revisor en un Pull Request:
+
+COMENTARIO:
+"${commentBody.slice(0, 1500)}"
+
+Determina si el comentario:
+A) Es una aprobación o confirmación de resuelto sin bloqueantes (ejemplo: "Buen trabajo", "LGTM", "Aprobado", "Ya no tienes bloqueantes, pasa").
+B) Requiere un cambio de código obligatorio (ejemplo: "Falta validar X", "Corrige este endpoint", "Cambia el nombre").
+C) Es un comentario meramente informativo o una sugerencia no bloqueante.
+
+Responde ÚNICAMENTE con un JSON válido con este formato:
+{
+  "type": "APPROVED_NO_BLOCKERS" | "REQUIRES_CODE_CHANGE" | "INFORMATIONAL",
+  "summary": "1 frase corta resumiendo la intención",
+  "requiresChange": true | false
+}`;
+
+        try {
+            const raw = await this.executePromptWithFallback(prompt);
+            const clean = raw.replace(/^\`\`\`json\n?/g, '').replace(/\n?\`\`\`$/g, '').trim();
+            const parsed = JSON.parse(clean);
+            return {
+                type: parsed.type || 'INFORMATIONAL',
+                summary: parsed.summary || commentBody.slice(0, 50),
+                requiresChange: Boolean(parsed.requiresChange)
+            };
+        } catch (_) {
+            const lower = commentBody.toLowerCase();
+            const isApproved = lower.includes('aprobado') || lower.includes('lgtm') || lower.includes('buen trabajo') || lower.includes('sin bloqueantes') || lower.includes('resuelto');
+            return {
+                type: isApproved ? 'APPROVED_NO_BLOCKERS' : 'REQUIRES_CODE_CHANGE',
+                summary: commentBody.slice(0, 50),
+                requiresChange: !isApproved
+            };
+        }
+    }
+
     async generateCodeReview(pr, diff) {
         const templates = this.getTemplates();
         const basePrompt = this.interpolate(templates.review_prompt_template, {

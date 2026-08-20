@@ -1,103 +1,119 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Pet Widget</title>
     <style>
-        * { box-sizing: border-box; }
-        body {
+        :root {
+            --bg-glass: rgba(255, 255, 255, 0.94);
+            --border-glass: rgba(226, 232, 240, 0.8);
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --primary-subtle: #e0e7ff;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-blue: #0284c7;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
             margin: 0;
             padding: 0;
+        }
+
+        body {
+            background-color: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
             overflow: hidden;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: transparent;
-            user-select: none;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
         }
 
         #app {
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: flex-end;
-            padding-bottom: 12px;
+            padding-bottom: 8px;
         }
 
-        /* Handle de arrastre nativo de Windows claro y visible */
+        /* Handle de arrastre superior */
         #drag-handle {
-            width: 120px;
-            height: 18px;
+            width: 90px;
+            height: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
             -webkit-app-region: drag;
             cursor: move;
-            color: #475569;
-            font-size: 13px;
-            letter-spacing: 6px;
+            color: #64748b;
+            font-size: 11px;
+            letter-spacing: 5px;
             margin: 0 auto 4px;
             background: rgba(255, 255, 255, 0.85);
-            border: 1px solid rgba(0,0,0,0.1);
-            border-radius: 9px;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            border-radius: 7px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
             flex-shrink: 0;
+            transition: all 0.2s ease;
         }
         #drag-handle:hover {
             color: #0f172a;
             background: #ffffff;
-            box-shadow: 0 3px 8px rgba(0,0,0,0.18);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.12);
         }
 
+        /* Globo de diálogo principal */
         #bubble {
-            background: rgba(255, 255, 255, 0.96);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(0,0,0,0.08);
-            border-radius: 14px;
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-glass);
+            border-radius: 16px;
             padding: 12px;
-            margin-bottom: 8px;
-            width: 290px;
-            max-height: 270px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+            width: 315px;
+            max-height: 310px;
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15), 0 4px 8px rgba(0, 0, 0, 0.05);
             font-size: 12px;
-            color: #24292f;
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
             position: relative;
-            -webkit-app-region: no-drag;
-            overflow-y: auto;
-            opacity: 1;
-            visibility: visible;
-            transform: translateY(0);
-            transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.2s;
+            margin-bottom: 8px;
+            z-index: 10;
+            transition: opacity 0.22s cubic-bezier(0.4, 0, 0.2, 1), transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.22s;
+            overflow: hidden;
         }
 
         #bubble.hidden {
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
-            transform: translateY(12px);
+            transform: translateY(14px) scale(0.96);
         }
 
-        #bubble::after {
-            content: '';
-            position: absolute;
-            bottom: -8px;
-            left: 50%;
-            transform: translateX(-50%);
-            border-width: 8px 8px 0;
-            border-style: solid;
-            border-color: rgba(255, 255, 255, 0.96) transparent transparent;
-        }
-
-        /* Notificación Toast Sticky con visibilidad total */
+        /* Banner de Notificación Toast */
         #toast-msg {
             display: none;
-            background: #1e293b;
+            background: #0f172a;
             color: #f8fafc;
-            font-size: 10px;
-            padding: 7px 10px;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 8px 12px;
             border-radius: 8px;
             margin-bottom: 8px;
             word-break: break-word;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.25);
             line-height: 1.35;
             position: sticky;
             top: 0;
@@ -105,254 +121,273 @@
             animation: fadeIn 0.2s ease-in-out;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-4px); }
-            to { opacity: 1; transform: translateY(0); }
+        /* Header del widget */
+        .widget-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.6);
         }
-
-        .section-title {
+        .user-tag {
             font-weight: 700;
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-top: 6px;
-            margin-bottom: 4px;
+            color: var(--text-main);
             display: flex;
             align-items: center;
-            gap: 4px;
-        }
-
-        .title-conflict { color: #b91c1c; }
-        .title-review { color: #d97706; }
-        .title-rereview { color: #2563eb; }
-        .title-action { color: #dc2626; }
-
-        .alert-item {
-            margin-bottom: 6px;
-            padding: 6px 8px;
-            background: #f6f8fa;
-            border-radius: 6px;
-            border-left: 3px solid #d0d7de;
-        }
-
-        .alert-item a {
-            color: #0969da;
-            text-decoration: none;
-            display: block;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-weight: 600;
-        }
-
-        .alert-item a:hover { text-decoration: underline; }
-
-        .alert-detail {
-            color: #57606a;
-            display: block;
-            font-size: 10px;
-            margin-top: 3px;
-        }
-
-        .alert-actions {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            margin-top: 5px;
-            flex-wrap: wrap;
-        }
-
-        .btn-action-ai {
-            background: #f0fdf4;
-            border: 1px solid #86efac;
-            color: #15803d;
-            border-radius: 4px;
-            font-size: 9px;
-            font-weight: 700;
-            padding: 3px 6px;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 3px;
-            -webkit-app-region: no-drag;
-            transition: background 0.15s;
-        }
-        .btn-action-ai:hover { background: #dcfce7; }
-        .btn-action-ai:disabled { opacity: 0.6; cursor: wait; }
-
-        .btn-action-conflict {
-            background: #fef2f2;
-            border-color: #fca5a5;
-            color: #b91c1c;
-        }
-        .btn-action-conflict:hover { background: #fee2e2; }
-
-        .empty-state {
-            color: #57606a;
-            font-size: 11px;
-            padding: 8px 0;
-            text-align: center;
-        }
-        .happy-message { color: #059669; font-weight: 600; }
-
-        .alert-filters {
-            display: flex;
             gap: 5px;
-            margin: 0 0 7px;
+            font-size: 12px;
         }
-        .filter-btn {
-            background: #f6f8fa;
-            border: 1px solid #d0d7de;
-            border-radius: 12px;
-            color: #57606a;
+        .header-actions {
+            display: flex;
+            gap: 4px;
+        }
+        .btn-icon {
+            background: rgba(241, 245, 249, 0.8);
+            border: 1px solid rgba(203, 213, 225, 0.6);
+            border-radius: 6px;
+            padding: 3px 6px;
+            font-size: 11px;
             cursor: pointer;
-            flex: 1;
-            font-size: 10px;
-            padding: 4px 5px;
-            -webkit-app-region: no-drag;
+            color: var(--text-muted);
+            transition: all 0.15s ease;
         }
-        .filter-btn.active {
-            background: #ddf4ff;
-            border-color: #0969da;
-            color: #0969da;
-            font-weight: 600;
+        .btn-icon:hover {
+            background: #e2e8f0;
+            color: var(--text-main);
         }
 
-        .token-input-group {
+        /* Barra de filtros por categoría */
+        .filter-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 6px;
+            overflow-x: auto;
+            padding-bottom: 2px;
+            scrollbar-width: none;
+        }
+        .filter-tabs::-webkit-scrollbar { display: none; }
+        .filter-pill {
+            background: rgba(241, 245, 249, 0.7);
+            border: 1px solid rgba(226, 232, 240, 0.8);
+            border-radius: 12px;
+            padding: 3px 8px;
+            font-size: 10.5px;
+            font-weight: 500;
+            color: var(--text-muted);
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s ease;
+        }
+        .filter-pill:hover {
+            background: rgba(226, 232, 240, 0.9);
+            color: var(--text-main);
+        }
+        .filter-pill.active {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary);
+            box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+        }
+
+        /* Barra de filtro temporal 7 días y vistos */
+        .sub-filters {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 10.5px;
+            color: var(--text-muted);
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .checkbox-label input {
+            cursor: pointer;
+            accent-color: var(--primary);
+        }
+
+        /* Lista de Alertas scrolleable */
+        #alerts-list {
+            flex: 1;
+            overflow-y: auto;
             display: flex;
             flex-direction: column;
             gap: 6px;
+            padding-right: 2px;
         }
-
-        .token-input {
-            width: 100%;
-            padding: 6px 8px;
-            border: 1px solid #d0d7de;
-            border-radius: 6px;
-            font-size: 11px;
-            font-family: monospace;
-            outline: none;
-            -webkit-app-region: no-drag;
+        #alerts-list::-webkit-scrollbar {
+            width: 4px;
         }
-
-        .token-input:focus {
-            border-color: #0969da;
-            box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
-        }
-
-        .btn-primary {
-            background: #2da44e;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 6px 10px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            width: 100%;
-            -webkit-app-region: no-drag;
-        }
-        .btn-primary:hover { background: #2c974b; }
-
-        .btn-secondary {
-            background: #f6f8fa;
-            color: #24292f;
-            border: 1px solid #d0d7de;
-            border-radius: 6px;
-            padding: 5px;
-            font-size: 10px;
-            cursor: pointer;
-            margin-top: 4px;
-            text-align: center;
-            display: block;
-            text-decoration: none;
-            -webkit-app-region: no-drag;
-        }
-        .btn-secondary:hover { background: #eaedf0; }
-
-        /* Auto-Pilot Checkbox Box */
-        .autopilot-box {
-            background: #f0fdf4;
-            border: 1px solid #bbf7d0;
-            border-radius: 6px;
-            padding: 8px;
-            margin-bottom: 8px;
-        }
-        .autopilot-option {
-            display: flex;
-            align-items: flex-start;
-            gap: 6px;
-            font-size: 10px;
-            color: #166534;
-            cursor: pointer;
-            line-height: 1.3;
-        }
-        .autopilot-option input { cursor: pointer; margin-top: 2px; }
-
-        /* Plantillas de IA Formulario */
-        .template-field { margin-bottom: 8px; }
-        .template-label {
-            font-size: 10px;
-            font-weight: 600;
-            color: #24292f;
-            margin-bottom: 2px;
-            display: block;
-        }
-        .template-textarea {
-            width: 100%;
-            height: 45px;
-            border: 1px solid #d0d7de;
+        #alerts-list::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.4);
             border-radius: 4px;
-            font-size: 9px;
-            font-family: monospace;
-            padding: 4px;
-            resize: vertical;
-            outline: none;
-            -webkit-app-region: no-drag;
         }
-        .template-textarea:focus { border-color: #0969da; }
 
-        /* Historial de tokens */
-        #token-history-list { display: none; margin-top: 6px; }
-        #token-history-list .history-label { font-size: 10px; color: #57606a; margin-bottom: 4px; }
-        .token-chip {
-            display: inline-block;
-            margin: 2px;
-            padding: 3px 8px;
-            background: #f6f8fa;
-            border: 1px solid #d0d7de;
-            border-radius: 12px;
-            font-size: 10px;
-            color: #0969da;
-            cursor: pointer;
+        /* Tarjeta de Alerta Rediseñada */
+        .alert-card {
+            background: #ffffff;
+            border: 1px solid rgba(226, 232, 240, 0.9);
+            border-radius: 10px;
+            padding: 8px 10px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            transition: all 0.15s ease;
+        }
+        .alert-card:hover {
+            border-color: rgba(199, 210, 254, 1);
+            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.08);
+        }
+
+        .card-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+        }
+        .repo-badge {
+            font-size: 9.5px;
+            font-weight: 600;
+            color: #475569;
+            background: #f1f5f9;
+            padding: 1px 5px;
+            border-radius: 4px;
             white-space: nowrap;
-            max-width: 120px;
             overflow: hidden;
             text-overflow: ellipsis;
-            vertical-align: middle;
-            -webkit-app-region: no-drag;
+            max-width: 140px;
         }
-        .token-chip:hover { background: #ddf4ff; border-color: #0969da; }
+        .time-badge {
+            font-size: 9.5px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
 
-        /* Botón Marcar como Visto */
-        .btn-seen {
-            background: none;
-            border: 1px solid #d0d7de;
-            border-radius: 4px;
-            color: #57606a;
-            font-size: 9px;
-            padding: 2px 5px;
+        .card-title {
+            color: var(--text-main);
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 11.5px;
+            line-height: 1.35;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .card-title:hover {
+            color: var(--primary);
+        }
+
+        .card-state {
+            font-size: 10.5px;
+            font-weight: 500;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Botones de acción 1-Click */
+        .card-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+            padding-top: 4px;
+            border-top: 1px dashed rgba(226, 232, 240, 0.8);
+        }
+        .btn-action-ai {
+            background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 10.5px;
+            font-weight: 600;
             cursor: pointer;
-            float: right;
-            margin-left: 4px;
-            flex-shrink: 0;
-            line-height: 1.4;
-            -webkit-app-region: no-drag;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
+            transition: all 0.15s ease;
         }
-        .btn-seen:hover { background: #f0fdf4; border-color: #10b981; color: #10b981; }
-        .btn-unseen:hover { background: #fff7ed; border-color: #f59e0b; color: #b45309; }
+        .btn-action-ai:hover {
+            filter: brightness(1.1);
+            transform: translateY(-1px);
+            box-shadow: 0 3px 8px rgba(79, 70, 229, 0.3);
+        }
+        .btn-action-ai:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .btn-action-conflict {
+            background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+            box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+        }
+        .btn-action-conflict:hover {
+            box-shadow: 0 3px 8px rgba(220, 38, 38, 0.3);
+        }
 
-        /* Contenedor de la mascota interactivo e inamovible (No-Drag para recibir 100% de clics) */
+        .btn-seen-toggle {
+            background: transparent;
+            border: 1px solid rgba(203, 213, 225, 0.7);
+            border-radius: 6px;
+            padding: 3px 6px;
+            font-size: 9.5px;
+            color: var(--text-muted);
+            cursor: pointer;
+            margin-left: auto;
+            transition: all 0.15s ease;
+        }
+        .btn-seen-toggle:hover {
+            background: #f1f5f9;
+            color: var(--text-main);
+        }
+
+        /* Sección de Historial de Logs */
+        #logs-section, #ai-settings-section, #auth-section {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+            overflow-y: auto;
+        }
+        .section-header {
+            font-weight: 700;
+            font-size: 12px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .log-item {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 6px 8px;
+            margin-bottom: 4px;
+            font-size: 10px;
+        }
+        .log-top {
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 2px;
+        }
+        .log-msg {
+            color: #64748b;
+            line-height: 1.3;
+        }
+
+        /* Contenedor de la mascota */
         #pet-container {
             position: relative;
             display: inline-block;
@@ -363,256 +398,305 @@
             z-index: 20;
         }
 
-        #badge {
-            position: absolute;
-            top: -2px;
-            right: -2px;
-            background: #ef4444;
-            color: white;
-            font-size: 10px;
-            font-weight: 700;
-            min-width: 18px;
-            height: 18px;
-            border-radius: 9px;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            padding: 0 4px;
-            border: 2px solid rgba(255,255,255,0.9);
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-            z-index: 10;
-            line-height: 1;
-            pointer-events: none;
-        }
-
         /* Mascota CSS */
         #pet {
-            width: 80px;
-            height: 80px;
+            width: 76px;
+            height: 76px;
             position: relative;
             cursor: pointer;
             filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25));
             transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
             -webkit-app-region: no-drag;
         }
-
-        #pet:hover { transform: scale(1.08); }
-
-        .body {
-            width: 62px;
-            height: 52px;
-            background: #10b981;
-            border-radius: 50% 50% 42% 42%;
-            position: absolute;
-            bottom: 0;
-            left: 9px;
-            transition: background 0.4s;
+        #pet:hover {
+            transform: scale(1.06);
         }
 
-        .head {
-            width: 52px;
-            height: 46px;
-            background: #10b981;
-            border-radius: 50%;
+        .pet-ear {
             position: absolute;
             top: 4px;
-            left: 14px;
-            transition: background 0.4s;
-        }
-
-        .ear {
             width: 0;
             height: 0;
-            border-left: 10px solid transparent;
-            border-right: 10px solid transparent;
-            border-bottom: 20px solid #10b981;
+            border-left: 14px solid transparent;
+            border-right: 14px solid transparent;
+            border-bottom: 22px solid currentColor;
+            transition: border-bottom-color 0.4s ease;
+        }
+        .pet-ear.left { left: 4px; transform: rotate(-15deg); }
+        .pet-ear.right { right: 4px; transform: rotate(15deg); }
+
+        .pet-body {
             position: absolute;
-            top: -6px;
-            transition: border-color 0.4s;
+            top: 14px;
+            left: 2px;
+            width: 72px;
+            height: 62px;
+            background-color: currentColor;
+            border-radius: 36px 36px 28px 28px;
+            transition: background-color 0.4s ease;
         }
 
-        .ear.left { left: 14px; transform: rotate(-22deg); }
-        .ear.right { right: 14px; transform: rotate(22deg); }
-
-        .eye {
+        .pet-eye {
+            position: absolute;
+            top: 26px;
             width: 7px;
             height: 7px;
-            background: #1f2937;
+            background-color: #0f172a;
             border-radius: 50%;
-            position: absolute;
-            top: 18px;
-            animation: blink 4s infinite;
         }
+        .pet-eye.left { left: 22px; }
+        .pet-eye.right { right: 22px; }
 
-        .eye.left { left: 14px; }
-        .eye.right { right: 14px; }
-
-        .nose {
-            width: 4px;
-            height: 3px;
-            background: #ec4899;
+        .pet-nose {
+            position: absolute;
+            top: 32px;
+            left: 35px;
+            width: 6px;
+            height: 5px;
+            background-color: #f43f5e;
             border-radius: 50%;
+        }
+
+        /* Badge numérico */
+        #badge {
             position: absolute;
-            top: 24px;
-            left: 24px;
+            top: -2px;
+            right: -2px;
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 700;
+            min-width: 20px;
+            height: 20px;
+            border-radius: 10px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            border: 2px solid #ffffff;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+            z-index: 25;
         }
 
-        /* Estados de color */
-        .state-happy .body, .state-happy .head { background: #10b981; }
-        .state-happy .ear { border-bottom-color: #10b981; }
+        /* Paleta de estados de la mascota */
+        body.state-happy #pet { color: #8b5cf6; }
+        body.state-action #pet { color: #f59e0b; }
+        body.state-conflict #pet { color: #ef4444; }
+        body.state-rereview #pet { color: #06b6d4; }
+        body.state-alert #pet { color: #3b82f6; }
+        body.state-working #pet { color: #10b981; }
+        body.state-disconnected #pet { color: #94a3b8; }
 
-        .state-alert .body, .state-alert .head { background: #f59e0b; }
-        .state-alert .ear { border-bottom-color: #f59e0b; }
-
-        .state-rereview .body, .state-rereview .head { background: #3b82f6; }
-        .state-rereview .ear { border-bottom-color: #3b82f6; }
-
-        .state-action .body, .state-action .head { background: #ef4444; }
-        .state-action .ear { border-bottom-color: #ef4444; }
-
-        .state-conflict .body, .state-conflict .head { background: #991b1b; }
-        .state-conflict .ear { border-bottom-color: #991b1b; }
-
-        .state-working .body, .state-working .head { background: #8b5cf6; }
-        .state-working .ear { border-bottom-color: #8b5cf6; }
-
-        .state-disconnected .body, .state-disconnected .head { background: #9ca3af; }
-        .state-disconnected .ear { border-bottom-color: #9ca3af; }
-
-        /* Animaciones */
-        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-        @keyframes blink { 0%, 96%, 100% { transform: scaleY(1); } 98% { transform: scaleY(0.1); } }
-        @keyframes jump-alert {
-            0% { transform: translateY(0) scale(1); }
-            20% { transform: translateY(-16px) scale(1.12); }
-            40% { transform: translateY(0) scale(0.96); }
-            55% { transform: translateY(-8px) scale(1.06); }
-            70% { transform: translateY(0) scale(1); }
-            85% { transform: translateY(-3px) scale(1.02); }
-            100% { transform: translateY(0) scale(1); }
+        /* Formulario de Ajustes */
+        .form-group {
+            margin-bottom: 8px;
         }
-        @keyframes flash-glow {
-            0% { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
-            30% { filter: drop-shadow(0 0 22px rgba(245,158,11,0.95)) brightness(1.25); }
-            60% { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
-            80% { filter: drop-shadow(0 0 14px rgba(245,158,11,0.7)); }
-            100% { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
+        .form-group label {
+            display: block;
+            font-size: 10px;
+            font-weight: 600;
+            color: #475569;
+            margin-bottom: 3px;
+        }
+        .form-control {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 11px;
+            font-family: inherit;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .btn-primary {
+            background: var(--primary);
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-weight: 600;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-secondary {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            color: #475569;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 11px;
+            cursor: pointer;
         }
 
-        .anim-bounce { animation: bounce 1.8s ease-in-out infinite; }
-        .anim-new-alert {
-            animation: jump-alert 0.75s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards,
-                       flash-glow 0.75s ease-in-out forwards !important;
+        .empty-state {
+            text-align: center;
+            color: #94a3b8;
+            font-size: 11.5px;
+            padding: 24px 8px;
+        }
+        .empty-state.happy {
+            color: #10b981;
+            font-weight: 600;
         }
 
-        @keyframes happy-hop {
-            0%, 100% { transform: translateY(0) rotate(0); }
-            25% { transform: translateY(-9px) rotate(-4deg); }
-            50% { transform: translateY(0) rotate(0); }
-            75% { transform: translateY(-6px) rotate(4deg); }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        .anim-happy { animation: happy-hop 0.9s ease-in-out 2; }
     </style>
 </head>
-<body class="state-disconnected">
+<body class="state-happy">
     <div id="app">
-        <!-- Handle de arrastre nativo -->
-        <div id="drag-handle">⠿ ⠿ ⠿</div>
+        <!-- Handle de arrastre superior nativo -->
+        <div id="drag-handle" title="Arrastrar ventana">⠿ ⠿ ⠿</div>
 
+        <!-- Globo de diálogo -->
         <div id="bubble">
             <div id="toast-msg"></div>
 
-            <!-- Sección de configuración de Token -->
-            <div id="auth-section">
-                <div style="font-weight:600; margin-bottom:6px;">🐾 Conectar a GitHub</div>
-                <div style="font-size:11px; color:#57606a; margin-bottom:8px;">
-                    Pega tu Personal Access Token (classic) con permisos <code>repo</code> y <code>read:user</code>:
-                </div>
-                <div class="token-input-group">
-                    <input type="password" id="token-input" class="token-input" placeholder="ghp_..." autocomplete="off" />
-                    <button id="save-token-btn" class="btn-primary" onclick="saveToken()">Guardar y Conectar</button>
-                    <a href="#" class="btn-secondary" onclick="openTokenHelp()">🔑 Generar token en GitHub</a>
-                </div>
-                <div id="token-history-list">
-                    <div class="history-label">🕐 Tokens recientes:</div>
-                    <div id="token-chips"></div>
-                </div>
-                <div id="auth-error-msg" style="color:#cf222e; font-size:11px; margin-top:6px; display:none;"></div>
-            </div>
-
-            <!-- Sección de Configuración de Prompts e IA y Auto-Pilot -->
-            <div id="ai-settings-section" style="display:none;">
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                    <div style="font-weight:700; font-size:11px;">🤖 Auto-Pilot y Prompts de IA</div>
-                    <a href="#" onclick="showAlertsView()" style="font-size:10px; color:#0969da; text-decoration:none;">✕ Volver</a>
+            <!-- VISTA 1: ALERTAS Y PRS -->
+            <div id="alerts-section" style="display: flex; flex-direction: column; height: 100%;">
+                <div class="widget-header">
+                    <div class="user-tag" id="user-header">👤 @Usuario</div>
+                    <div class="header-actions">
+                        <button class="btn-icon" id="btn-logs" title="Historial de Acciones IA" onclick="showActionLogs()">📋</button>
+                        <button class="btn-icon" id="btn-ai" title="Ajustes de Prompts e IA" onclick="showAISettings()">🤖</button>
+                        <button class="btn-icon" id="btn-refresh" title="Actualizar" onclick="refreshStatus()">↻</button>
+                    </div>
                 </div>
 
-                <!-- Toggle de Auto-Pilot -->
-                <div class="autopilot-box">
-                    <label class="autopilot-option">
-                        <input type="checkbox" id="chk-autopilot" />
-                        <div>
-                            <strong>🚀 Modo Auto-Pilot Total:</strong>
-                            <div style="font-size:9px; color:#15803d; margin-top:2px;">
-                                En cuanto detecta un conflicto o feedback en un PR, crea un worktree, lo resuelve con IA, pasa los tests y hace push automáticamente a GitHub.
-                            </div>
-                        </div>
+                <!-- Pestañas de Filtro por Categoría -->
+                <div class="filter-tabs">
+                    <button class="filter-pill active" data-filter="all" onclick="setCategoryFilter('all')">Todos</button>
+                    <button class="filter-pill" data-filter="conflict" onclick="setCategoryFilter('conflict')">💥 Conflictos</button>
+                    <button class="filter-pill" data-filter="feedback" onclick="setCategoryFilter('feedback')">💬 Feedback</button>
+                    <button class="filter-pill" data-filter="review" onclick="setCategoryFilter('review')">⏳ Revisiones</button>
+                    <button class="filter-pill" data-filter="resolved" onclick="setCategoryFilter('resolved')">✅ Resueltos</button>
+                </div>
+
+                <!-- Sub-Filtros: 7 Días & Vistos -->
+                <div class="sub-filters">
+                    <label class="checkbox-label" title="Ocultar PRs inactivos por más de 7 días">
+                        <input type="checkbox" id="chk-recent-only" checked onchange="toggleRecentOnly()">
+                        <span>📅 Últimos 7 días</span>
+                    </label>
+                    <label class="checkbox-label" title="Mostrar PRs ya vistos">
+                        <input type="checkbox" id="chk-show-viewed" onchange="toggleShowViewed()">
+                        <span>Vistos</span>
                     </label>
                 </div>
-                
-                <div class="template-field">
-                    <label class="template-label">🔍 Criterios de Code Review:</label>
-                    <textarea id="tpl-review" class="template-textarea"></textarea>
-                </div>
 
-                <div class="template-field">
-                    <label class="template-label">⚡ Plantilla de Mensaje de Commit:</label>
-                    <textarea id="tpl-autofix" class="template-textarea"></textarea>
+                <!-- Lista de PRs scrolleable -->
+                <div id="alerts-list">
+                    <div class="empty-state happy">✨ ¡Todo al día! Sin pendientes.</div>
                 </div>
-
-                <div class="template-field">
-                    <label class="template-label">🔀 Política de Conflictos de Merge:</label>
-                    <textarea id="tpl-conflict" class="template-textarea"></textarea>
-                </div>
-
-                <div style="display:flex; gap:4px; margin-top:8px;">
-                    <button class="btn-primary" onclick="saveAISettings()">Guardar Ajustes</button>
-                    <button class="btn-secondary" style="margin-top:0;" onclick="resetAITemplates()">Restablecer</button>
-                </div>
-                <div id="ai-save-feedback" style="color:#059669; font-size:10px; margin-top:4px; display:none;">✅ Ajustes guardados correctamente</div>
             </div>
 
-            <!-- Sección de Alertas -->
-            <div id="alerts-section" style="display:none;">
-                <div id="user-header" style="font-size:11px; color:#57606a; border-bottom:1px solid #d0d7de; padding-bottom:4px; margin-bottom:6px;"></div>
-                <div class="alert-filters" role="tablist" aria-label="Filtro de alertas">
-                    <button class="filter-btn active" data-filter="active" onclick="setAlertFilter('active')">Pendientes</button>
-                    <button class="filter-btn" data-filter="viewed" onclick="setAlertFilter('viewed')">Vistos</button>
-                    <button class="filter-btn" id="refresh-btn" onclick="refreshStatus()">↻ Actualizar</button>
+            <!-- VISTA 2: HISTORIAL DE ACCIONES IA -->
+            <div id="logs-section">
+                <div class="section-header">
+                    <span>📋 Historial de Acciones IA</span>
+                    <button class="btn-icon" onclick="showAlertsView()">✕</button>
                 </div>
-                <div id="alerts-list">Buscando PRs...</div>
-                <div style="display:flex; justify-content:space-between; margin-top:8px; font-size:10px;">
-                    <a href="#" onclick="showAISettings()" style="color:#0969da; text-decoration:none;">🤖 Prompts & Auto-Pilot</a>
-                    <a href="#" onclick="showSettings()" style="color:#57606a; text-decoration:none;">⚙️ Token</a>
+                <div id="logs-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
+                    <div class="empty-state">No hay acciones registradas aún.</div>
                 </div>
+                <div style="margin-top: 6px; display: flex; justify-content: flex-end;">
+                    <button class="btn-secondary" style="font-size: 10px;" onclick="clearActionLogs()">Limpiar Historial</button>
+                </div>
+            </div>
+
+            <!-- VISTA 3: AJUSTES DE PROMPTS Y AUTO-PILOT -->
+            <div id="ai-settings-section">
+                <div class="section-header">
+                    <span>🤖 Prompts & Auto-Pilot</span>
+                    <button class="btn-icon" onclick="showAlertsView()">✕</button>
+                </div>
+                <div style="flex: 1; overflow-y: auto; padding-right: 2px;">
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                            <input type="checkbox" id="chk-autopilot" style="accent-color: var(--primary);">
+                            <strong style="color: var(--primary);">🚀 Modo Auto-Pilot Total</strong>
+                        </label>
+                        <span style="font-size: 9.5px; color: var(--text-muted); display: block; margin-top: 2px;">
+                            Resuelve en worktree, auto-cura tests y hace git push automáticamente en segundo plano.
+                        </span>
+                    </div>
+
+                    <div class="form-group">
+                        <label>📅 Límite de inactividad (Días):</label>
+                        <select id="sel-days-threshold" class="form-control">
+                            <option value="7">Últimos 7 días (Recomendado)</option>
+                            <option value="14">Últimos 14 días</option>
+                            <option value="30">Últimos 30 días</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Plantilla de Code Review:</label>
+                        <textarea id="tpl-review" class="form-control" rows="3"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Plantilla de Commit Auto-Fix:</label>
+                        <textarea id="tpl-autofix" class="form-control" rows="2"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Prompt de Conflictos de Merge:</label>
+                        <textarea id="tpl-conflict" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1px solid #e2e8f0;">
+                    <button class="btn-secondary" onclick="resetAITemplates()">Restaurar</button>
+                    <button class="btn-primary" onclick="saveAISettings()">Guardar</button>
+                </div>
+                <div id="ai-save-feedback" style="display: none; font-size: 10px; color: #10b981; text-align: center; margin-top: 4px;">
+                    ✅ Ajustes guardados correctamente
+                </div>
+            </div>
+
+            <!-- VISTA 4: AUTENTICACIÓN / TOKEN -->
+            <div id="auth-section">
+                <div class="section-header">
+                    <span>⚙️ Token de GitHub</span>
+                    <button class="btn-icon" onclick="showAlertsView()">✕</button>
+                </div>
+                <div style="flex: 1;">
+                    <div class="form-group">
+                        <label>Personal Access Token (classic / fine-grained):</label>
+                        <input type="password" id="token-input" class="form-control" placeholder="ghp_...">
+                    </div>
+                    <div id="auth-error-msg" style="display: none; color: var(--accent-red); font-size: 10px; margin-bottom: 6px;"></div>
+                    <div id="token-history-list" style="display: none; margin-bottom: 6px;">
+                        <span style="font-size: 9.5px; color: var(--text-muted);">Cuentas anteriores:</span>
+                        <div id="token-chips" style="display: flex; gap: 4px; margin-top: 2px;"></div>
+                    </div>
+                </div>
+                <button class="btn-primary" id="save-token-btn" style="width: 100%;" onclick="saveToken()">Guardar y Conectar</button>
             </div>
         </div>
 
-        <!-- Mascota con badge de pendientes (Fija y siempre visible) -->
+        <!-- Mascota Interactiva -->
         <div id="pet-container">
             <div id="badge">0</div>
-            <div id="pet" class="anim-bounce">
-                <div class="ear left"></div>
-                <div class="ear right"></div>
-                <div class="body"></div>
-                <div class="head">
-                    <div class="eye left"></div>
-                    <div class="eye right"></div>
-                    <div class="nose"></div>
+            <div id="pet" title="Clic para mostrar/ocultar panel">
+                <div class="pet-ear left"></div>
+                <div class="pet-ear right"></div>
+                <div class="pet-body">
+                    <div class="pet-eye left"></div>
+                    <div class="pet-eye right"></div>
+                    <div class="pet-nose"></div>
                 </div>
             </div>
         </div>
     </div>
+
     <script src="renderer.js"></script>
 </body>
 </html>

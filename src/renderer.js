@@ -2,35 +2,41 @@ const { ipcRenderer, shell } = require('electron');
 
 const bubble = document.getElementById('bubble');
 const alertsSection = document.getElementById('alerts-section');
-const alertsList = document.getElementById('alerts-list');
-const userHeader = document.getElementById('user-header');
-const authSection = document.getElementById('auth-section');
+const logsSection = document.getElementById('logs-section');
 const aiSettingsSection = document.getElementById('ai-settings-section');
+const authSection = document.getElementById('auth-section');
+
+const alertsList = document.getElementById('alerts-list');
+const logsList = document.getElementById('logs-list');
+const userHeader = document.getElementById('user-header');
 const tokenInput = document.getElementById('token-input');
 const authErrorMsg = document.getElementById('auth-error-msg');
 const tokenHistoryList = document.getElementById('token-history-list');
 const tokenChips = document.getElementById('token-chips');
 const pet = document.getElementById('pet');
-const petContainer = document.getElementById('pet-container');
 const badge = document.getElementById('badge');
 const toastMsg = document.getElementById('toast-msg');
 const body = document.body;
 
-// Toggle de Auto-Pilot
 const chkAutopilot = document.getElementById('chk-autopilot');
+const selDaysThreshold = document.getElementById('sel-days-threshold');
+const chkRecentOnly = document.getElementById('chk-recent-only');
+const chkShowViewed = document.getElementById('chk-show-viewed');
 
 let isBubbleVisible = true;
 let prevTotalAlerts = -1;
-let alertFilter = 'active';
+let currentCategoryFilter = 'all';
+let daysThreshold = 7;
 const alertStore = new Map();
 const viewedAt = new Map();
+let actionLogs = [];
 let toastTimer = null;
 
 function showToast(text, isError = false) {
     if (toastTimer) clearTimeout(toastTimer);
     toastMsg.textContent = text;
     toastMsg.style.display = 'block';
-    toastMsg.style.background = isError ? '#991b1b' : '#1e293b';
+    toastMsg.style.background = isError ? '#991b1b' : '#0f172a';
     toastTimer = setTimeout(() => {
         toastMsg.style.display = 'none';
     }, 4500);
@@ -48,7 +54,7 @@ function isViewed(a) {
     return Boolean(seen && new Date(a.latest_activity_at || a.updated_at || 0) <= new Date(seen));
 }
 
-// Clic en la mascota para expandir / ocultar el globo suavemente (sin mover el contenedor)
+// Clic en la mascota para expandir / ocultar
 pet.addEventListener('click', (e) => {
     isBubbleVisible = !isBubbleVisible;
     if (isBubbleVisible) {
@@ -99,16 +105,39 @@ function openURL(url) { shell.openExternal(url); }
 window.openURL = openURL;
 
 // =========================================================================
-// ACCIONES 1-CLICK AUTÓNOMAS DIRECTAS (WORKTREE + TESTS + PUSH + GITHUB API)
+// FILTROS AVANZADOS (CATEGORÍAS Y 7 DÍAS)
+// =========================================================================
+
+function setCategoryFilter(filter) {
+    currentCategoryFilter = filter;
+    document.querySelectorAll('.filter-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+    renderAlerts();
+}
+window.setCategoryFilter = setCategoryFilter;
+
+function toggleRecentOnly() {
+    renderAlerts();
+}
+window.toggleRecentOnly = toggleRecentOnly;
+
+function toggleShowViewed() {
+    renderAlerts();
+}
+window.toggleShowViewed = toggleShowViewed;
+
+// =========================================================================
+// ACCIONES 1-CLICK AUTÓNOMAS CON OPENAI LUNA Y WORKTREES
 // =========================================================================
 
 function triggerAutoReview(url, btn) {
     const alert = alertStore.get(url);
     if (!alert) return;
     btn.disabled = true;
-    btn.textContent = '⚙️ Publicando Review...';
+    btn.textContent = '⚙️ Publicando...';
     body.className = 'state-working';
-    showToast(`🤖 Generando y publicando Code Review para PR #${alert.number}...`);
+    showToast(`🤖 Generando revisión con OpenAI Luna para PR #${alert.number}...`);
     ipcRenderer.send('execute-auto-review', alert);
 }
 
@@ -116,9 +145,9 @@ function triggerAutoFixFeedback(url, btn) {
     const alert = alertStore.get(url);
     if (!alert) return;
     btn.disabled = true;
-    btn.textContent = '⚙️ Auto-Fix en Worktree...';
+    btn.textContent = '⚙️ Aplicando Fix...';
     body.className = 'state-working';
-    showToast(`⚡ Creando worktree, aplicando fixes y corriendo tests para PR #${alert.number}...`);
+    showToast(`⚡ Creando worktree y aplicando fix con OpenAI Luna para PR #${alert.number}...`);
     ipcRenderer.send('execute-autofix-worktree', alert);
 }
 
@@ -126,9 +155,9 @@ function triggerMergeConflictResolution(url, btn) {
     const alert = alertStore.get(url);
     if (!alert) return;
     btn.disabled = true;
-    btn.textContent = '⚙️ Resolviendo en Worktree...';
+    btn.textContent = '⚙️ Resolviendo...';
     body.className = 'state-working';
-    showToast(`🔀 Resolviendo conflictos en worktree y pusheando para PR #${alert.number}...`);
+    showToast(`🔀 Resolviendo conflictos en worktree para PR #${alert.number}...`);
     ipcRenderer.send('execute-merge-conflict-worktree', alert);
 }
 
@@ -138,169 +167,243 @@ ipcRenderer.on('action-progress', (event, { text }) => {
 
 ipcRenderer.on('action-completed', (event, result) => {
     if (result.success) {
-        showToast(result.message || '🚀 ¡Tarea completada y pusheada a GitHub con éxito!');
+        showToast(result.message || '🚀 ¡Tarea completada y pusheada con éxito!');
         triggerHappyAnimation();
     } else {
-        showToast('❌ ' + (result.error || result.message || 'No se pudo completar la acción.'), true);
+        showToast('❌ ' + (result.error || result.message || 'Error en la acción.'), true);
     }
     renderAlerts();
 });
 
-// Auto-Pilot Background Status
-ipcRenderer.on('autopilot-status', (event, { text }) => {
-    body.className = 'state-working';
-    showToast(text);
-});
+// =========================================================================
+// RENDERIZADO MODERNO DE TARJETAS DE ALERTAS
+// =========================================================================
 
-ipcRenderer.on('autopilot-finished', (event, { pr, result }) => {
-    if (result?.pushed || result?.success) {
-        showToast(`✨ Auto-Pilot: PR #${pr.number} resuelto y pusheado con tests verdes.`);
-        triggerHappyAnimation();
-    }
-});
+function createAlertCard(a, viewed) {
+    const card = document.createElement('div');
+    card.className = 'alert-card';
+    card.dataset.url = alertKey(a);
 
-function createAlertItem(a, viewed) {
-    const item = document.createElement('div');
-    item.className = 'alert-item';
-    item.dataset.url = alertKey(a);
-
+    // Fila Superior (Repo y Tiempo)
     const topRow = document.createElement('div');
-    topRow.style.display = 'flex';
-    topRow.style.justifyContent = 'space-between';
-    topRow.style.alignItems = 'flex-start';
+    topRow.className = 'card-top';
 
-    const link = document.createElement('a');
-    link.href = '#';
-    link.textContent = a.title || 'Pull Request sin título';
-    link.title = a.title || '';
-    link.style.flex = '1';
-    link.addEventListener('click', (e) => { e.preventDefault(); openURL(a.url); });
+    const repoBadge = document.createElement('span');
+    repoBadge.className = 'repo-badge';
+    repoBadge.textContent = a.repository || 'repo';
+    repoBadge.title = a.repository || '';
 
-    const button = document.createElement('button');
-    button.className = viewed ? 'btn-seen btn-unseen' : 'btn-seen';
-    button.textContent = viewed ? '↩ No visto' : '✓ Visto';
-    button.addEventListener('click', () => viewed
+    const timeBadge = document.createElement('span');
+    timeBadge.className = 'time-badge';
+    timeBadge.textContent = a.days_ago === 0 ? 'hoy' : `hace ${a.days_ago}d`;
+
+    topRow.append(repoBadge, timeBadge);
+    card.appendChild(topRow);
+
+    // Título del PR Clickable
+    const titleLink = document.createElement('a');
+    titleLink.className = 'card-title';
+    titleLink.href = '#';
+    titleLink.textContent = a.title || 'Pull Request sin título';
+    titleLink.title = a.title || '';
+    titleLink.addEventListener('click', (e) => { e.preventDefault(); openURL(a.url); });
+    card.appendChild(titleLink);
+
+    // Estado del PR
+    if (a.state) {
+        const stateEl = document.createElement('div');
+        stateEl.className = 'card-state';
+        stateEl.textContent = a.state;
+        card.appendChild(stateEl);
+    }
+
+    // Acciones 1-Click & Botón Visto
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+
+    if (a.type === 'resolved') {
+        const resolvedTag = document.createElement('span');
+        resolvedTag.style.fontSize = '10px';
+        resolvedTag.style.color = '#10b981';
+        resolvedTag.style.fontWeight = '600';
+        resolvedTag.textContent = '✨ Resuelto y pusheado';
+        actions.appendChild(resolvedTag);
+    } else {
+        if (a.has_conflict) {
+            const btn = document.createElement('button');
+            btn.className = 'btn-action-ai btn-action-conflict';
+            btn.innerHTML = '<span>🔀</span> Resolver & Push';
+            btn.addEventListener('click', () => triggerMergeConflictResolution(alertKey(a), btn));
+            actions.appendChild(btn);
+        }
+
+        if (a.type === 'my_pr_activity' && a.requires_fix) {
+            const btn = document.createElement('button');
+            btn.className = 'btn-action-ai';
+            btn.innerHTML = '<span>⚡</span> Auto-Fix & Push';
+            btn.addEventListener('click', () => triggerAutoFixFeedback(alertKey(a), btn));
+            actions.appendChild(btn);
+        }
+
+        if (a.type === 'review_required' || a.type === 're_review_needed') {
+            const btn = document.createElement('button');
+            btn.className = 'btn-action-ai';
+            btn.innerHTML = '<span>🤖</span> Revisar & Publicar';
+            btn.addEventListener('click', () => triggerAutoReview(alertKey(a), btn));
+            actions.appendChild(btn);
+        }
+    }
+
+    const seenBtn = document.createElement('button');
+    seenBtn.className = 'btn-seen-toggle';
+    seenBtn.textContent = viewed ? '↩ No visto' : '✓ Visto';
+    seenBtn.addEventListener('click', () => viewed
         ? markUnseen(alertKey(a))
         : markSeen(alertKey(a), a.latest_activity_at || a.updated_at));
+    actions.appendChild(seenBtn);
 
-    topRow.append(link, button);
-    item.appendChild(topRow);
-
-    if (a.state) {
-        const detail = document.createElement('span');
-        detail.className = 'alert-detail';
-        detail.textContent = a.state;
-        item.appendChild(detail);
-    }
-
-    // Botones de acción 1-click end-to-end
-    const actions = document.createElement('div');
-    actions.className = 'alert-actions';
-
-    // Si tiene conflictos de merge -> Botón Resolver & Push
-    if (a.has_conflict) {
-        const conflictBtn = document.createElement('button');
-        conflictBtn.className = 'btn-action-ai btn-action-conflict';
-        conflictBtn.innerHTML = '<span>🔀</span> Resolver & Push';
-        conflictBtn.title = 'Crear worktree aislado, resolver marcadores con IA, verificar tests y hacer git push';
-        conflictBtn.addEventListener('click', () => triggerMergeConflictResolution(alertKey(a), conflictBtn));
-        actions.appendChild(conflictBtn);
-    }
-
-    // Si es mi PR y me dejaron cambios o feedback -> Botón Auto-Fix & Push
-    if (a.type === 'my_pr_activity' && a.state && (a.state.includes('Cambios pedidos') || a.state.includes('Comentario'))) {
-        const fixBtn = document.createElement('button');
-        fixBtn.className = 'btn-action-ai';
-        fixBtn.innerHTML = '<span>⚡</span> Auto-Fix & Push';
-        fixBtn.title = 'Crear worktree, aplicar correcciones de código solicitadas con IA, verificar tests y hacer git push';
-        fixBtn.addEventListener('click', () => triggerAutoFixFeedback(alertKey(a), fixBtn));
-        actions.appendChild(fixBtn);
-    }
-
-    // Si me asignaron para revisar -> Botón Revisar & Publicar
-    if (a.type === 'review_required' || a.type === 're_review_needed') {
-        const reviewBtn = document.createElement('button');
-        reviewBtn.className = 'btn-action-ai';
-        reviewBtn.innerHTML = '<span>🤖</span> Revisar & Publicar';
-        reviewBtn.title = 'Analizar diff con IA y publicar la revisión oficial directamente en GitHub';
-        reviewBtn.addEventListener('click', () => triggerAutoReview(alertKey(a), reviewBtn));
-        actions.appendChild(reviewBtn);
-    }
-
-    if (actions.children.length > 0) {
-        item.appendChild(actions);
-    }
-
-    return item;
+    card.appendChild(actions);
+    return card;
 }
-
-const sections = [
-    ['merge_conflicts', 'title-conflict', '💥 Conflictos de Merge'],
-    ['my_pr_activity', 'title-action', '⚡ Actividad en tus PRs'],
-    ['re_review_needed', 'title-rereview', '🔄 Re-revisión Pendiente'],
-    ['review_required', 'title-review', '⏳ Revisión Requerida']
-];
 
 function renderAlerts() {
     alertsList.replaceChildren();
-    let shown = 0;
-    sections.forEach(([type, className, label]) => {
-        const items = [...alertStore.values()].filter(a => a.type === type &&
-            (alertFilter === 'active' ? !isViewed(a) : isViewed(a)));
-        if (!items.length) return;
-        const title = document.createElement('div');
-        title.className = `section-title ${className}`;
-        title.textContent = label;
-        alertsList.appendChild(title);
-        items.forEach(a => { alertsList.appendChild(createAlertItem(a, alertFilter === 'viewed')); shown++; });
-    });
-    if (!shown) {
-        alertsList.innerHTML = alertFilter === 'viewed'
-            ? '<div class="empty-state">No hay alertas vistas.</div>'
-            : '<div class="empty-state happy-message">✨ ¡Todo al día! Sin pendientes.</div>';
+    const showViewed = chkShowViewed.checked;
+    const recentOnly = chkRecentOnly.checked;
+
+    let items = [...alertStore.values()];
+
+    // 1. Filtro de Vistos
+    items = items.filter(a => showViewed ? isViewed(a) : !isViewed(a));
+
+    // 2. Filtro de 7 Días (o umbral configurado)
+    if (recentOnly) {
+        items = items.filter(a => (a.days_ago || 0) <= daysThreshold);
     }
-    const activeCount = [...alertStore.values()].filter(a => !isViewed(a)).length;
+
+    // 3. Filtro por Categoría
+    if (currentCategoryFilter === 'conflict') {
+        items = items.filter(a => a.type === 'merge_conflicts');
+    } else if (currentCategoryFilter === 'feedback') {
+        items = items.filter(a => a.type === 'my_pr_activity');
+    } else if (currentCategoryFilter === 'review') {
+        items = items.filter(a => a.type === 'review_required' || a.type === 're_review_needed');
+    } else if (currentCategoryFilter === 'resolved') {
+        items = items.filter(a => a.type === 'resolved');
+    }
+
+    if (items.length === 0) {
+        alertsList.innerHTML = showViewed
+            ? '<div class="empty-state">No hay alertas en vistos.</div>'
+            : '<div class="empty-state happy">✨ ¡Todo al día! Sin pendientes.</div>';
+    } else {
+        items.forEach(a => alertsList.appendChild(createAlertCard(a, showViewed)));
+    }
+
+    const activeCount = [...alertStore.values()].filter(a => !isViewed(a) && a.type !== 'resolved').length;
     updateBadge(activeCount);
 }
 
-function setAlertFilter(filter) {
-    alertFilter = filter;
-    document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === filter));
-    renderAlerts();
-}
-window.setAlertFilter = setAlertFilter;
-
 function refreshStatus() {
-    const button = document.getElementById('refresh-btn');
-    if (button) { button.disabled = true; button.textContent = 'Actualizando…'; }
+    const btn = document.getElementById('btn-refresh');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
     ipcRenderer.send('refresh-status');
     setTimeout(() => {
-        if (button) { button.disabled = false; button.textContent = '↻ Actualizar'; }
+        if (btn) { btn.disabled = false; btn.textContent = '↻'; }
     }, 1500);
 }
 window.refreshStatus = refreshStatus;
 
-// Configuración de Prompts e IA y Auto-Pilot
+// =========================================================================
+// HISTORIAL DE LOGS DE ACCIONES IA
+// =========================================================================
+
+function showActionLogs() {
+    alertsSection.style.display = 'none';
+    aiSettingsSection.style.display = 'none';
+    authSection.style.display = 'none';
+    logsSection.style.display = 'flex';
+    ipcRenderer.send('get-action-logs');
+}
+window.showActionLogs = showActionLogs;
+
+function clearActionLogs() {
+    ipcRenderer.send('clear-action-logs');
+}
+window.clearActionLogs = clearActionLogs;
+
+function renderLogs(logs) {
+    actionLogs = logs || [];
+    logsList.replaceChildren();
+    if (actionLogs.length === 0) {
+        logsList.innerHTML = '<div class="empty-state">No hay acciones registradas aún.</div>';
+        return;
+    }
+    actionLogs.forEach(l => {
+        const item = document.createElement('div');
+        item.className = 'log-item';
+        const d = new Date(l.timestamp);
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        item.innerHTML = `
+            <div class="log-top">
+                <span>${escapeHtml(l.actionType || 'Acción')}</span>
+                <span style="font-size: 9px; color: #94a3b8;">${timeStr}</span>
+            </div>
+            <div class="log-msg">${escapeHtml(l.repository)} #${l.prNumber}: ${escapeHtml(l.message || '')}</div>
+        `;
+        logsList.appendChild(item);
+    });
+}
+
+ipcRenderer.on('action-logs-data', (event, logs) => renderLogs(logs));
+
+// =========================================================================
+// NAVEGACIÓN Y AJUSTES DE PROMPTS
+// =========================================================================
+
+function showAlertsView() {
+    logsSection.style.display = 'none';
+    aiSettingsSection.style.display = 'none';
+    authSection.style.display = 'none';
+    alertsSection.style.display = 'flex';
+}
+window.showAlertsView = showAlertsView;
+
 function showAISettings() {
     alertsSection.style.display = 'none';
+    logsSection.style.display = 'none';
     authSection.style.display = 'none';
-    aiSettingsSection.style.display = 'block';
+    aiSettingsSection.style.display = 'flex';
     ipcRenderer.send('get-ai-templates');
 }
 window.showAISettings = showAISettings;
 
-function showAlertsView() {
+function showSettings() {
+    alertsSection.style.display = 'none';
+    logsSection.style.display = 'none';
     aiSettingsSection.style.display = 'none';
-    authSection.style.display = 'none';
-    alertsSection.style.display = 'block';
+    authSection.style.display = 'flex';
+    authErrorMsg.style.display = 'none';
+    ipcRenderer.send('get-token-history');
 }
-window.showAlertsView = showAlertsView;
+window.showSettings = showSettings;
 
-ipcRenderer.on('ai-templates-data', (event, { templates, autopilot_enabled }) => {
+ipcRenderer.on('ai-templates-data', (event, { templates, autopilot_enabled, days_threshold }) => {
     document.getElementById('tpl-review').value = templates.review_prompt_template || '';
     document.getElementById('tpl-autofix').value = templates.autofix_commit_template || '';
     document.getElementById('tpl-conflict').value = templates.merge_conflict_template || '';
     chkAutopilot.checked = Boolean(autopilot_enabled);
+    if (days_threshold) {
+        daysThreshold = Number(days_threshold);
+        selDaysThreshold.value = String(days_threshold);
+    }
+});
+
+ipcRenderer.on('days-threshold', (event, days) => {
+    daysThreshold = Number(days) || 7;
+    selDaysThreshold.value = String(daysThreshold);
+    renderAlerts();
 });
 
 function saveAISettings() {
@@ -311,7 +414,9 @@ function saveAISettings() {
             merge_conflict_template: document.getElementById('tpl-conflict').value,
         },
         autopilot_enabled: chkAutopilot.checked,
+        days_threshold: Number(selDaysThreshold.value) || 7
     };
+    daysThreshold = payload.days_threshold;
     ipcRenderer.send('save-ai-templates', payload);
     const feedback = document.getElementById('ai-save-feedback');
     feedback.style.display = 'block';
@@ -321,13 +426,6 @@ window.saveAISettings = saveAISettings;
 
 function resetAITemplates() {
     ipcRenderer.send('reset-ai-templates');
-    const feedback = document.getElementById('ai-save-feedback');
-    feedback.textContent = '🔄 Valores por defecto restaurados';
-    feedback.style.display = 'block';
-    setTimeout(() => {
-        feedback.textContent = '✅ Ajustes guardados correctamente';
-        feedback.style.display = 'none';
-    }, 2000);
 }
 window.resetAITemplates = resetAITemplates;
 
@@ -336,12 +434,12 @@ function renderTokenHistory(history) {
     tokenHistoryList.style.display = 'block';
     tokenChips.replaceChildren();
     history.forEach(h => {
-        const button = document.createElement('button');
-        button.className = 'token-chip';
-        button.title = h.token;
-        button.textContent = `@${h.username}`;
-        button.addEventListener('click', () => { tokenInput.value = h.token; saveToken(); });
-        tokenChips.appendChild(button);
+        const btn = document.createElement('button');
+        btn.className = 'filter-pill';
+        btn.style.fontSize = '9.5px';
+        btn.textContent = `@${h.username}`;
+        btn.addEventListener('click', () => { tokenInput.value = h.token; saveToken(); });
+        tokenChips.appendChild(btn);
     });
 }
 ipcRenderer.on('token-history', (event, history) => renderTokenHistory(history));
@@ -351,50 +449,40 @@ ipcRenderer.on('seen-prs', (event, seen) => {
     renderAlerts();
 });
 
-function openTokenHelp() { shell.openExternal('https://github.com/settings/tokens/new?scopes=repo,read:user&description=GitHub%20Pet%20Widget'); }
-window.openTokenHelp = openTokenHelp;
-
 function saveToken() {
     const token = tokenInput.value.trim();
-    if (!token) { showError('Por favor ingresa un token válido.'); return; }
+    if (!token) {
+        authErrorMsg.textContent = 'Por favor ingresa un token válido.';
+        authErrorMsg.style.display = 'block';
+        return;
+    }
     authErrorMsg.style.display = 'none';
     document.getElementById('save-token-btn').textContent = 'Verificando...';
     ipcRenderer.send('set-token', token);
 }
 window.saveToken = saveToken;
 
-function showSettings() {
-    alertsSection.style.display = 'none';
-    aiSettingsSection.style.display = 'none';
-    authSection.style.display = 'block';
-    authErrorMsg.style.display = 'none';
-    document.getElementById('save-token-btn').textContent = 'Guardar y Conectar';
-    ipcRenderer.send('get-token-history');
-}
-window.showSettings = showSettings;
-
-function showError(msg) {
-    authErrorMsg.textContent = msg;
-    authErrorMsg.style.display = 'block';
-    document.getElementById('save-token-btn').textContent = 'Guardar y Conectar';
-    body.className = 'state-disconnected';
-}
-
-ipcRenderer.on('show-settings', () => showSettings());
-ipcRenderer.on('show-ai-settings', () => showAISettings());
-ipcRenderer.on('always-on-top-state', () => {});
 ipcRenderer.on('auth-success', (event, { username, tokenHistory }) => {
-    authSection.style.display = 'none';
-    aiSettingsSection.style.display = 'none';
-    alertsSection.style.display = 'block';
+    showAlertsView();
     userHeader.textContent = `👤 @${username}`;
     if (tokenHistory) renderTokenHistory(tokenHistory);
 });
-ipcRenderer.on('auth-error', (event, error) => showError(error));
+ipcRenderer.on('auth-error', (event, error) => {
+    authErrorMsg.textContent = error;
+    authErrorMsg.style.display = 'block';
+    document.getElementById('save-token-btn').textContent = 'Guardar y Conectar';
+    body.className = 'state-disconnected';
+});
+
+ipcRenderer.on('show-settings', () => showSettings());
+ipcRenderer.on('show-ai-settings', () => showAISettings());
+ipcRenderer.on('show-action-logs', () => showActionLogs());
 
 ipcRenderer.on('status-update', (event, alerts) => {
     const incoming = [];
-    sections.forEach(([type]) => (alerts[type] || []).forEach(a => incoming.push({ ...a, type })));
+    ['merge_conflicts', 'my_pr_activity', 're_review_needed', 'review_required', 'resolved'].forEach(type => {
+        (alerts[type] || []).forEach(a => incoming.push({ ...a, type }));
+    });
     const incomingKeys = new Set(incoming.map(alertKey));
     
     [...alertStore.keys()].forEach(key => {
@@ -402,7 +490,7 @@ ipcRenderer.on('status-update', (event, alerts) => {
     });
     incoming.forEach(a => alertStore.set(alertKey(a), a));
 
-    const active = incoming.filter(a => !isViewed(a));
+    const active = incoming.filter(a => !isViewed(a) && a.type !== 'resolved');
     const priority = active.some(a => a.type === 'merge_conflicts') ? 'state-conflict'
         : active.some(a => a.type === 'my_pr_activity') ? 'state-action'
         : active.some(a => a.type === 're_review_needed') ? 'state-rereview'

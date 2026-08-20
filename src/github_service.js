@@ -173,7 +173,7 @@ class GitHubService {
         }
     }
 
-    async getStatus(seenPRs = {}, includeSeen = false) {
+    async getStatus(seenPRs = {}, includeSeen = false, resolvedPRs = {}) {
         try {
             const octokit = await this.getOctokit();
             if (!this.username) {
@@ -187,9 +187,11 @@ class GitHubService {
                 review_required: [],
                 re_review_needed: [],
                 my_pr_activity: [],
+                resolved: [],
                 meta: { rateLimit: this.lastRateLimit, generatedAt: new Date().toISOString() },
             };
             const items = await this.searchPullRequests(username);
+            const now = Date.now();
 
             for (const item of items) {
                 const parts = String(item.repository_url || '').split('/').filter(Boolean);
@@ -272,22 +274,36 @@ class GitHubService {
                 const headSha = pr.head?.sha || null;
                 const latestActivityAt = events[0]?.date || toDate(pr.updated_at);
                 const seen = isSeen(seenPRs, pr.html_url || item.html_url, latestActivityAt);
+                const daysAgo = Math.floor((now - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24));
+                const url = pr.html_url || item.html_url;
 
                 const common = {
                     title: pr.title || item.title || `PR #${item.number}`,
-                    url: pr.html_url || item.html_url,
+                    url,
                     updated_at: pr.updated_at,
                     head_sha: headSha,
-                    head_branch: pr.head?.ref || 'main',
+                    head_branch: pr.head?.ref || 'dev',
                     base_branch: pr.base?.ref || 'main',
                     number: item.number,
                     repository: `${owner}/${repo}`,
                     author: loginOf(pr.user) || username,
                     latest_activity_at: latestActivityAt.toISOString(),
+                    days_ago: Math.max(0, daysAgo),
                     has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
                 };
 
-                // Conflictos de Merge
+                // CICLO DE VIDA: Verificar si está marcado como RESUELTO
+                const resolvedRecord = resolvedPRs[url];
+                if (resolvedRecord && toDate(resolvedRecord.resolvedAt).getTime() >= latestActivityAt.getTime() && !common.has_conflict) {
+                    alerts.resolved.push({
+                        ...common,
+                        state: `✅ Resuelto por IA (${resolvedRecord.actionType || 'Fix'} pusheado)`,
+                        resolved_info: resolvedRecord
+                    });
+                    continue;
+                }
+
+                // 1. Conflictos de Merge
                 if (pr.mergeable === false || pr.mergeable_state === 'dirty') {
                     if (includeSeen || !seen) {
                         alerts.merge_conflicts.push({
@@ -297,34 +313,47 @@ class GitHubService {
                     }
                 }
 
-                // CASO C: Mi propio PR
+                // 2. CASO C: Mi propio PR
                 if (isSameUser(pr.user, username)) {
                     const otherFormal = others.find(e => e.type === 'review' && ['CHANGES_REQUESTED', 'APPROVED'].includes(e.state));
                     const newOther = latestOther && (!latestMine || latestOther.date > latestMine.date);
                     
                     let detail = null;
+                    let requiresFix = true;
+
                     if (otherFormal?.state === 'CHANGES_REQUESTED') {
                         detail = `Cambios pedidos por @${otherFormal.user} ⚠️`;
+                        requiresFix = true;
                     } else if (otherFormal?.state === 'APPROVED') {
-                        detail = `Aprobado por @${otherFormal.user} ✅`;
+                        detail = `Aprobado por @${otherFormal.user} ✅ (Sin bloqueantes)`;
+                        requiresFix = false;
                     } else if (newOther) {
-                        detail = `Comentario de @${latestOther.user} 💬`;
+                        const bodyText = (latestOther.body || '').toLowerCase();
+                        if (bodyText.includes('aprobado') || bodyText.includes('lgtm') || bodyText.includes('buen trabajo') || bodyText.includes('sin bloqueantes')) {
+                            detail = `Comentario de @${latestOther.user} ✅ (Aprobado / Sin bloqueantes)`;
+                            requiresFix = false;
+                        } else {
+                            detail = `Comentario de @${latestOther.user} 💬`;
+                            requiresFix = true;
+                        }
                     } else if (others.length > 0) {
                         detail = `Actividad reciente en tu PR 💬`;
                     } else {
                         detail = `Abierto y esperando revisión ⏳`;
+                        requiresFix = false;
                     }
 
                     if (includeSeen || !seen) {
                         alerts.my_pr_activity.push({
                             ...common,
                             state: detail,
+                            requires_fix: requiresFix
                         });
                     }
                     continue;
                 }
 
-                // CASOS A y B: PRs de otros
+                // 3. CASOS A y B: PRs de otros
                 const requested = (pr.requested_reviewers || []).some(r => isSameUser(r, username));
                 if (requested && !latestMine) {
                     if (includeSeen || !seen) {
@@ -353,7 +382,7 @@ class GitHubService {
                 }
             }
 
-            for (const key of ['merge_conflicts', 'review_required', 're_review_needed', 'my_pr_activity']) {
+            for (const key of ['merge_conflicts', 'review_required', 're_review_needed', 'my_pr_activity', 'resolved']) {
                 alerts[key].sort((a, b) => toDate(b.latest_activity_at || b.updated_at) - toDate(a.latest_activity_at || a.updated_at));
             }
             alerts.meta.rateLimit = this.lastRateLimit;

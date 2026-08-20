@@ -92,13 +92,17 @@ function testRendererPetToggle() {
         set value(v) { this._val = v; }, get value() { return this._val; }
     });
     const elements = {};
-    const ids = ['bubble', 'alerts-section', 'alerts-list', 'user-header', 'auth-section',
-        'ai-settings-section', 'token-input', 'auth-error-msg', 'token-history-list', 'token-chips', 'pet',
-        'pet-container', 'badge', 'refresh-btn', 'save-token-btn', 'toast-msg',
-        'tpl-review', 'tpl-autofix', 'tpl-conflict', 'chk-autopilot', 'ai-save-feedback'];
+    const ids = [
+        'bubble', 'alerts-section', 'logs-section', 'ai-settings-section', 'auth-section',
+        'alerts-list', 'logs-list', 'user-header', 'token-input', 'auth-error-msg',
+        'token-history-list', 'token-chips', 'pet', 'badge', 'toast-msg',
+        'chk-autopilot', 'sel-days-threshold', 'chk-recent-only', 'chk-show-viewed',
+        'tpl-review', 'tpl-autofix', 'tpl-conflict', 'ai-save-feedback', 'btn-refresh',
+        'btn-logs', 'btn-ai', 'save-token-btn'
+    ];
     ids.forEach(id => { elements[id] = makeElement(); elements[id].id = id; });
     const document = {
-        getElementById: id => elements[id],
+        getElementById: id => elements[id] || makeElement(),
         addEventListener: (type, callback) => listeners.set('document:' + type, callback),
         querySelectorAll: () => []
     };
@@ -114,15 +118,15 @@ function testRendererPetToggle() {
     const petClick = listeners.get('pet:click');
     assert.ok(typeof petClick === 'function', 'el listener de clic en la mascota debe existir');
     
-    // Primer clic: oculta el globo añadiendo .hidden
+    // Primer clic: oculta el globo
     petClick();
-    assert.ok(classes.has('hidden'), 'el primer clic debe agregar .hidden para ocultar el globo sin mover el pet');
+    assert.ok(classes.has('hidden'), 'el primer clic debe agregar .hidden');
 
-    // Segundo clic: muestra el globo quitando .hidden
+    // Segundo clic: muestra el globo
     petClick();
-    assert.ok(!classes.has('hidden'), 'el segundo clic debe remover .hidden restaurando el globo');
+    assert.ok(!classes.has('hidden'), 'el segundo clic debe remover .hidden');
 }
 
 testWorkAreaOrigin();
 testRendererPetToggle();
-console.log('✅ Regresión de UI y arrastre nativo: Todos los casos pasaron al 100%.');
+console.log('✅ Regresión de UI y arrastre: Todos los casos pasaron al 100%.');

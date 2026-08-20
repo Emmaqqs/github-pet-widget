@@ -40,6 +40,29 @@ function saveConfig(data) {
     }
 }
 
+function addActionLog(entry) {
+    const cfg = loadConfig();
+    const logs = cfg.action_logs || [];
+    logs.unshift({
+        id: 'log_' + Date.now(),
+        timestamp: new Date().toISOString(),
+        ...entry
+    });
+    saveConfig({ action_logs: logs.slice(0, 50) });
+    mainWindow?.webContents.send('action-logs-data', logs.slice(0, 50));
+}
+
+function markPRAsResolved(url, actionType, details = '') {
+    const cfg = loadConfig();
+    const resolved = cfg.resolved_prs || {};
+    resolved[url] = {
+        resolvedAt: new Date().toISOString(),
+        actionType,
+        details
+    };
+    saveConfig({ resolved_prs: resolved });
+}
+
 function createWindow() {
     const primaryDisplay = screen.getPrimaryDisplay();
     const workArea = primaryDisplay.workArea || {
@@ -73,6 +96,7 @@ function createWindow() {
     if (alwaysOnTop) {
         mainWindow.setAlwaysOnTop(true, 'floating');
     }
+
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
     aiService = new AIService(config.ai_templates || {});
@@ -91,6 +115,8 @@ function createWindow() {
         const saved = loadConfig();
         mainWindow.webContents.send('always-on-top-state', alwaysOnTop);
         mainWindow.webContents.send('seen-prs', saved.seen_prs || {});
+        mainWindow.webContents.send('action-logs-data', saved.action_logs || []);
+        mainWindow.webContents.send('days-threshold', saved.days_threshold || 7);
         mainWindow.webContents.send('autopilot-config', {
             enabled: Boolean(saved.autopilot_enabled)
         });
@@ -145,15 +171,26 @@ async function runAutoPilotTasks(status) {
         if (!autoPilotProcessing.has(key)) {
             autoPilotProcessing.add(key);
             console.log(`[Auto-Pilot] Resolviendo conflictos para PR #${pr.number} en ${pr.repository}...`);
-            mainWindow?.webContents.send('autopilot-status', { text: `🔀 Auto-Pilot: Resolviendo PR #${pr.number}...` });
+            mainWindow?.webContents.send('action-progress', { text: `Auto-Pilot: Resolviendo PR #${pr.number}...` });
             
             worktreeService.resolveMergeConflictsInWorktree({
                 repository: pr.repository,
                 pull_number: pr.number,
                 head_branch: pr.head_branch,
-                base_branch: pr.base_branch || 'main'
+                base_branch: pr.base_branch || 'main',
+                onProgress: (t) => mainWindow?.webContents.send('action-progress', { text: t })
             }).then(res => {
-                mainWindow?.webContents.send('autopilot-finished', { pr, result: res });
+                if (res.pushed) {
+                    markPRAsResolved(pr.url, 'Conflictos de Merge', res.message);
+                    addActionLog({
+                        repository: pr.repository,
+                        prNumber: pr.number,
+                        actionType: '🔀 Resolver Conflictos (Auto-Pilot)',
+                        status: 'SUCCESS',
+                        message: `Pusheado a ${pr.head_branch} con tests pasando.`
+                    });
+                }
+                mainWindow?.webContents.send('action-completed', res);
                 updateStatus();
             }).catch(e => console.error('[Auto-Pilot] Error en merge:', e));
         }
@@ -166,19 +203,28 @@ async function runAutoPilotTasks(status) {
             if (!autoPilotProcessing.has(key)) {
                 autoPilotProcessing.add(key);
                 console.log(`[Auto-Pilot] Auto-Fix para PR #${pr.number} en ${pr.repository}...`);
-                mainWindow?.webContents.send('autopilot-status', { text: `⚡ Auto-Pilot: Aplicando fixes a PR #${pr.number}...` });
+                mainWindow?.webContents.send('action-progress', { text: `Auto-Pilot: Aplicando fixes a PR #${pr.number}...` });
                 
                 worktreeService.autoFixReviewFeedbackInWorktree({
                     repository: pr.repository,
                     pull_number: pr.number,
                     head_branch: pr.head_branch,
-                    feedbackText: pr.state
+                    feedbackText: pr.state,
+                    onProgress: (t) => mainWindow?.webContents.send('action-progress', { text: t })
                 }).then(async (res) => {
                     if (res.pushed) {
+                        markPRAsResolved(pr.url, 'Auto-Fix', res.message);
                         const [owner, repo] = pr.repository.split('/');
                         await github.postComment(owner, repo, pr.number, '🤖 *Auto-Pilot: He aplicado las correcciones solicitadas en un worktree y pusheado los cambios con tests pasando.*');
+                        addActionLog({
+                            repository: pr.repository,
+                            prNumber: pr.number,
+                            actionType: '⚡ Auto-Fix Feedback (Auto-Pilot)',
+                            status: 'SUCCESS',
+                            message: `Fixes pusheados a ${pr.head_branch}.`
+                        });
                     }
-                    mainWindow?.webContents.send('autopilot-finished', { pr, result: res });
+                    mainWindow?.webContents.send('action-completed', res);
                     updateStatus();
                 }).catch(e => console.error('[Auto-Pilot] Error en auto-fix:', e));
             }
@@ -191,7 +237,8 @@ async function updateStatus() {
     try {
         const cfg = loadConfig();
         const seenPRs = cfg.seen_prs || {};
-        const status = await github.getStatus(seenPRs, true);
+        const resolvedPRs = cfg.resolved_prs || {};
+        const status = await github.getStatus(seenPRs, true, resolvedPRs);
         if (status) {
             mainWindow.webContents.send('status-update', status);
             runAutoPilotTasks(status);
@@ -227,19 +274,36 @@ ipcMain.on('get-token-history', (event) => {
     event.reply('token-history', history);
 });
 
+ipcMain.on('get-action-logs', (event) => {
+    const logs = loadConfig().action_logs || [];
+    event.reply('action-logs-data', logs);
+});
+
+ipcMain.on('clear-action-logs', (event) => {
+    saveConfig({ action_logs: [] });
+    event.reply('action-logs-data', []);
+});
+
+ipcMain.on('save-days-threshold', (event, days) => {
+    saveConfig({ days_threshold: Number(days) || 7 });
+    event.reply('days-threshold', Number(days) || 7);
+});
+
 ipcMain.on('get-ai-templates', (event) => {
     const config = loadConfig();
     const service = new AIService(config.ai_templates || {});
     event.reply('ai-templates-data', {
         templates: service.getTemplates(),
-        autopilot_enabled: Boolean(config.autopilot_enabled)
+        autopilot_enabled: Boolean(config.autopilot_enabled),
+        days_threshold: Number(config.days_threshold) || 7
     });
 });
 
-ipcMain.on('save-ai-templates', (event, { templates, autopilot_enabled }) => {
+ipcMain.on('save-ai-templates', (event, { templates, autopilot_enabled, days_threshold }) => {
     saveConfig({
         ai_templates: templates,
-        autopilot_enabled: Boolean(autopilot_enabled)
+        autopilot_enabled: Boolean(autopilot_enabled),
+        days_threshold: Number(days_threshold) || 7
     });
     if (aiService) aiService.config = templates;
     event.reply('ai-templates-saved', { success: true });
@@ -252,11 +316,12 @@ ipcMain.on('reset-ai-templates', (event) => {
         autofix_commit_template: DEFAULT_AUTOFIX_COMMIT_TEMPLATE,
         merge_conflict_template: DEFAULT_MERGE_CONFLICT_TEMPLATE,
     };
-    saveConfig({ ai_templates: defaultTemplates, autopilot_enabled: false });
+    saveConfig({ ai_templates: defaultTemplates, autopilot_enabled: false, days_threshold: 7 });
     if (aiService) aiService.config = defaultTemplates;
     event.reply('ai-templates-data', {
         templates: defaultTemplates,
-        autopilot_enabled: false
+        autopilot_enabled: false,
+        days_threshold: 7
     });
 });
 
@@ -267,11 +332,26 @@ ipcMain.on('execute-auto-review', async (event, pr) => {
         return;
     }
     try {
+        event.reply('action-progress', { text: 'Descargando diff del PR...' });
         const [owner, repo] = (pr.repository || '').split('/');
         const diff = await github.getPullRequestDiff(owner, repo, pr.number);
+        
+        event.reply('action-progress', { text: 'OpenAI Luna generando revisión...' });
         const reviewText = await aiService.generateCodeReview(pr, diff);
+        
+        event.reply('action-progress', { text: 'Publicando revisión en GitHub...' });
         const publishResult = await github.submitPullRequestReview(owner, repo, pr.number, reviewText, 'COMMENT');
         
+        if (publishResult.success) {
+            addActionLog({
+                repository: pr.repository,
+                prNumber: pr.number,
+                actionType: '🤖 Code Review Publicado',
+                status: 'SUCCESS',
+                message: 'Revisión oficial publicada directamente en GitHub.'
+            });
+        }
+
         event.reply('action-completed', {
             success: publishResult.success,
             message: `✅ Review publicado exitosamente en GitHub para PR #${pr.number}!`,
@@ -300,9 +380,19 @@ ipcMain.on('execute-autofix-worktree', async (event, pr) => {
             }
         });
 
-        if (result.pushed && github) {
-            const [owner, repo] = (pr.repository || '').split('/');
-            await github.postComment(owner, repo, pr.number, '🤖 *He resuelto el feedback de revisión automáticamente en un worktree y pusheado los cambios con tests pasando.*');
+        if (result.pushed) {
+            markPRAsResolved(pr.url, 'Auto-Fix', result.message);
+            if (github) {
+                const [owner, repo] = (pr.repository || '').split('/');
+                await github.postComment(owner, repo, pr.number, '🤖 *He resuelto el feedback de revisión automáticamente en un worktree y pusheado los cambios con tests pasando.*');
+            }
+            addActionLog({
+                repository: pr.repository,
+                prNumber: pr.number,
+                actionType: '⚡ Auto-Fix Feedback',
+                status: 'SUCCESS',
+                message: `Fixes aplicados y pusheados a ${pr.head_branch}.`
+            });
         }
 
         event.reply('action-completed', {
@@ -333,6 +423,17 @@ ipcMain.on('execute-merge-conflict-worktree', async (event, pr) => {
             }
         });
 
+        if (result.pushed) {
+            markPRAsResolved(pr.url, 'Conflictos de Merge', result.message);
+            addActionLog({
+                repository: pr.repository,
+                prNumber: pr.number,
+                actionType: '🔀 Resolver Conflictos',
+                status: 'SUCCESS',
+                message: `Conflictos resueltos y pusheados a ${pr.head_branch}.`
+            });
+        }
+
         event.reply('action-completed', {
             success: result.pushed,
             message: result.message || 'Conflictos resueltos y pusheados a GitHub.',
@@ -349,6 +450,10 @@ ipcMain.on('show-context-menu', () => {
     const template = [
         { label: '🔄 Actualizar ahora', click: () => updateStatus() },
         {
+            label: '📋 Historial de Acciones IA',
+            click: () => { if (mainWindow) mainWindow.webContents.send('show-action-logs'); }
+        },
+        {
             label: '🤖 Configurar Prompts y Auto-Pilot',
             click: () => { if (mainWindow) mainWindow.webContents.send('show-ai-settings'); }
         },
@@ -360,7 +465,7 @@ ipcMain.on('show-context-menu', () => {
             label: pinLabel,
             click: () => {
                 alwaysOnTop = !alwaysOnTop;
-                mainWindow.setAlwaysOnTop(alwaysOnTop);
+                mainWindow.setAlwaysOnTop(alwaysOnTop, alwaysOnTop ? 'floating' : 'normal');
                 saveConfig({ alwaysOnTop });
                 mainWindow.webContents.send('always-on-top-state', alwaysOnTop);
             }
