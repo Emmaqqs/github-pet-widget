@@ -40,6 +40,15 @@ function saveConfig(data) {
     }
 }
 
+function isPositionVisible(x, y, width = 330, height = 420) {
+    if (typeof x !== 'number' || typeof y !== 'number') return false;
+    const displays = screen.getAllDisplays();
+    return displays.some(d => {
+        const { x: dx, y: dy, width: dw, height: dh } = d.bounds;
+        return (x + width - 40 >= dx) && (x + 40 <= dx + dw) && (y + height - 40 >= dy) && (y + 40 <= dy + dh);
+    });
+}
+
 function addActionLog(entry) {
     const cfg = loadConfig();
     const logs = cfg.action_logs || [];
@@ -73,8 +82,14 @@ function createWindow() {
     const { x: workAreaX = 0, y: workAreaY = 0, width, height } = workArea;
     const config = loadConfig();
 
-    const winX = typeof config.x === 'number' ? config.x : workAreaX + width - 340;
-    const winY = typeof config.y === 'number' ? config.y : workAreaY + height - 400;
+    let winX = config.x;
+    let winY = config.y;
+
+    if (!isPositionVisible(winX, winY, 330, 420)) {
+        winX = workAreaX + width - 340;
+        winY = workAreaY + height - 400;
+    }
+
     alwaysOnTop = config.alwaysOnTop !== false;
 
     mainWindow = new BrowserWindow({
@@ -107,7 +122,9 @@ function createWindow() {
         savePositionTimer = setTimeout(() => {
             if (!mainWindow) return;
             const [x, y] = mainWindow.getPosition();
-            saveConfig({ x, y });
+            if (isPositionVisible(x, y, 330, 420)) {
+                saveConfig({ x, y });
+            }
         }, 500);
     });
 
@@ -116,6 +133,7 @@ function createWindow() {
         mainWindow.webContents.send('always-on-top-state', alwaysOnTop);
         mainWindow.webContents.send('seen-prs', saved.seen_prs || {});
         mainWindow.webContents.send('action-logs-data', saved.action_logs || []);
+        mainWindow.webContents.send('watched-devs-data', saved.watched_devs || {});
         mainWindow.webContents.send('days-threshold', saved.days_threshold || 7);
         mainWindow.webContents.send('autopilot-config', {
             enabled: Boolean(saved.autopilot_enabled)
@@ -169,7 +187,6 @@ async function runAutoPilotTasks(status) {
         const key = `conflict_${pr.url}_${pr.updated_at}`;
         if (!autoPilotProcessing.has(key)) {
             autoPilotProcessing.add(key);
-            console.log(`[Auto-Pilot] Resolviendo conflictos para PR #${pr.number} en ${pr.repository}...`);
             mainWindow?.webContents.send('action-progress', { text: `Auto-Pilot: Resolviendo PR #${pr.number}...` });
             
             worktreeService.resolveMergeConflictsInWorktree({
@@ -200,7 +217,6 @@ async function runAutoPilotTasks(status) {
             const key = `fix_${pr.url}_${pr.updated_at}`;
             if (!autoPilotProcessing.has(key)) {
                 autoPilotProcessing.add(key);
-                console.log(`[Auto-Pilot] Auto-Fix para PR #${pr.number} en ${pr.repository}...`);
                 mainWindow?.webContents.send('action-progress', { text: `Auto-Pilot: Aplicando fixes a PR #${pr.number}...` });
                 
                 worktreeService.autoFixReviewFeedbackInWorktree({
@@ -272,9 +288,6 @@ ipcMain.on('get-token-history', (event) => {
     const history = loadConfig().token_history || [];
     event.reply('token-history', history);
 });
-
-
-// GESTIÓN DE DESARROLLADORES MONITOREADOS POR REPOSITORIO
 
 ipcMain.on('get-repo-members', async (event, repoFullName) => {
     if (!github || !repoFullName) {
@@ -357,7 +370,6 @@ ipcMain.on('reset-ai-templates', (event) => {
     });
 });
 
-// 1. Revisar y publicar en GitHub
 ipcMain.on('execute-auto-review', async (event, pr) => {
     if (!github || !aiService) {
         event.reply('action-completed', { success: false, error: 'Servicio no inicializado' });
@@ -395,7 +407,6 @@ ipcMain.on('execute-auto-review', async (event, pr) => {
     }
 });
 
-// 2. Auto-Fix en Worktree + Push
 ipcMain.on('execute-autofix-worktree', async (event, pr) => {
     if (!worktreeService) {
         event.reply('action-completed', { success: false, error: 'Worktree service no disponible' });
@@ -438,7 +449,6 @@ ipcMain.on('execute-autofix-worktree', async (event, pr) => {
     }
 });
 
-// 3. Resolver Conflictos de Merge en Worktree + Push
 ipcMain.on('execute-merge-conflict-worktree', async (event, pr) => {
     if (!worktreeService) {
         event.reply('action-completed', { success: false, error: 'Worktree service no disponible' });
@@ -482,6 +492,10 @@ ipcMain.on('show-context-menu', () => {
     const template = [
         { label: '🔄 Actualizar ahora', click: () => updateStatus() },
         {
+            label: '👥 Monitorear Compañeros',
+            click: () => { if (mainWindow) mainWindow.webContents.send('show-watched-devs'); }
+        },
+        {
             label: '📋 Historial de Acciones IA',
             click: () => { if (mainWindow) mainWindow.webContents.send('show-action-logs'); }
         },
@@ -517,8 +531,8 @@ ipcMain.on('start-window-drag', (event, data) => {
     if (mainWindow && data) {
         dragInitialWinPos = mainWindow.getPosition();
         dragInitialCursor = {
-            x: Math.round(Number(data.x) || 0),
-            y: Math.round(Number(data.y) || 0)
+            x: Math.round(Number(data.screenX) || 0),
+            y: Math.round(Number(data.screenY) || 0)
         };
     }
 });
@@ -540,7 +554,9 @@ ipcMain.on('window-drag-move', (event, data) => {
 ipcMain.on('end-window-drag', () => {
     if (mainWindow) {
         const [x, y] = mainWindow.getPosition();
-        saveConfig({ x, y });
+        if (isPositionVisible(x, y, 330, 420)) {
+            saveConfig({ x, y });
+        }
     }
 });
 

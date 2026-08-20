@@ -272,40 +272,78 @@ function quickAddWatchedDev(user) {
 
 function renderWatchedChips() {
     watchedDevsChips.replaceChildren();
-    if (!currentSelectedRepo) {
-        watchedDevsChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Selecciona un repositorio para ver los seguidos.</span>';
+    
+    // Si hay un repositorio seleccionado específicamente
+    if (currentSelectedRepo) {
+        const devs = (watchedDevsMap[currentSelectedRepo] || []);
+        if (devs.length === 0) {
+            watchedDevsChips.innerHTML = '<span style="font-size: 9px; color: #94a3b8;">Sin compañeros monitoreados aún en este repo.</span>';
+            return;
+        }
+        devs.forEach(username => {
+            const chip = document.createElement('span');
+            chip.className = 'tag-badge tag-monitored';
+            chip.style.fontSize = '9.5px';
+            chip.style.padding = '2px 5px';
+            chip.innerHTML = `@${escapeHtml(username)} <button style="background:none; border:none; color:#0e7490; cursor:pointer; font-weight:700; margin-left:3px;" onclick="removeWatchedDev('${escapeHtml(username)}')">✕</button>`;
+            watchedDevsChips.appendChild(chip);
+        });
         return;
     }
-    const devs = (watchedDevsMap[currentSelectedRepo] || []);
-    if (devs.length === 0) {
-        watchedDevsChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Ningún desarrollador agregado aún en este repo.</span>';
+
+    // Resumen Global de todos los repositorios seguidos
+    const reposWithDevs = Object.entries(watchedDevsMap).filter(([_, list]) => Array.isArray(list) && list.length > 0);
+    if (reposWithDevs.length === 0) {
+        watchedDevsChips.innerHTML = '<span style="font-size: 9px; color: #94a3b8;">Aún no estás monitoreando a ningún compañero. Busca un repositorio arriba para comenzar.</span>';
         return;
     }
-    devs.forEach(username => {
-        const chip = document.createElement('span');
-        chip.className = 'tag-badge tag-monitored';
-        chip.style.fontSize = '10px';
-        chip.style.padding = '2px 6px';
-        chip.innerHTML = `@${escapeHtml(username)} <button style="background:none; border:none; color:#0e7490; cursor:pointer; font-weight:700; margin-left:3px;" onclick="removeWatchedDev('${escapeHtml(username)}')">✕</button>`;
-        watchedDevsChips.appendChild(chip);
+
+    reposWithDevs.forEach(([repoName, devs]) => {
+        const repoBlock = document.createElement('div');
+        repoBlock.style.width = '100%';
+        repoBlock.style.marginBottom = '4px';
+        repoBlock.style.padding = '3px 5px';
+        repoBlock.style.background = '#ffffff';
+        repoBlock.style.borderRadius = '5px';
+        repoBlock.style.border = '1px solid #e2e8f0';
+
+        const title = document.createElement('div');
+        title.style.fontSize = '9px';
+        title.style.fontWeight = '700';
+        title.style.color = '#334155';
+        title.style.marginBottom = '2px';
+        title.textContent = '📁 ' + repoName;
+        repoBlock.appendChild(title);
+
+        const chipsWrap = document.createElement('div');
+        chipsWrap.style.display = 'flex';
+        chipsWrap.style.flexWrap = 'wrap';
+        chipsWrap.style.gap = '2px';
+
+        devs.forEach(username => {
+            const chip = document.createElement('span');
+            chip.className = 'tag-badge tag-monitored';
+            chip.style.fontSize = '9px';
+            chip.style.padding = '1px 4px';
+            chip.innerHTML = `@${escapeHtml(username)} <button style="background:none; border:none; color:#0e7490; cursor:pointer; font-weight:700; margin-left:2px;" onclick="removeWatchedDevFromRepo('${escapeHtml(repoName)}', '${escapeHtml(username)}')">✕</button>`;
+            chipsWrap.appendChild(chip);
+        });
+
+        repoBlock.appendChild(chipsWrap);
+        watchedDevsChips.appendChild(repoBlock);
     });
 }
 
-function addWatchedDev() {
-    const user = inputWatchedUser.value.trim().replace(/^@/, '');
-    if (!currentSelectedRepo || !user) return;
-    quickAddWatchedDev(user);
-    inputWatchedUser.value = '';
-}
-window.addWatchedDev = addWatchedDev;
-
-function removeWatchedDev(user) {
-    if (!currentSelectedRepo || !watchedDevsMap[currentSelectedRepo]) return;
-    watchedDevsMap[currentSelectedRepo] = watchedDevsMap[currentSelectedRepo].filter(u => u !== user);
+function removeWatchedDevFromRepo(repoName, user) {
+    if (!watchedDevsMap[repoName]) return;
+    watchedDevsMap[repoName] = watchedDevsMap[repoName].filter(u => u !== user);
+    if (watchedDevsMap[repoName].length === 0) delete watchedDevsMap[repoName];
     ipcRenderer.send('save-watched-devs', watchedDevsMap);
     renderWatchedChips();
 }
-window.removeWatchedDev = removeWatchedDev;
+window.removeWatchedDevFromRepo = removeWatchedDevFromRepo;
+
+function removeWatchedDev(user) { if (!currentSelectedRepo || !watchedDevsMap[currentSelectedRepo]) return; watchedDevsMap[currentSelectedRepo] = watchedDevsMap[currentSelectedRepo].filter(u => u !== user); ipcRenderer.send("save-watched-devs", watchedDevsMap); renderWatchedChips(); } window.removeWatchedDev = removeWatchedDev;
 
 // =========================================================================
 // ACCIONES 1-CLICK AUTÓNOMAS CON OPENAI LUNA Y WORKTREES
@@ -740,6 +778,7 @@ ipcRenderer.on('auth-error', (event, error) => {
 ipcRenderer.on('show-settings', () => showSettings());
 ipcRenderer.on('show-ai-settings', () => showAISettings());
 ipcRenderer.on('show-action-logs', () => showActionLogs());
+ipcRenderer.on('show-watched-devs', () => showWatchedDevsView());
 
 ipcRenderer.on('status-update', (event, alerts) => {
     const incoming = alerts.all_prs || [];
