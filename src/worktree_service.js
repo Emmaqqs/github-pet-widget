@@ -4,7 +4,7 @@ const fs = require('fs');
 
 function execPromise(cmd, cwd) {
     return new Promise((resolve, reject) => {
-        exec(cmd, { cwd, timeout: 90000 }, (err, stdout, stderr) => {
+        exec(cmd, { cwd, timeout: 120000 }, (err, stdout, stderr) => {
             if (err) {
                 return reject(new Error(stderr || stdout || err.message));
             }
@@ -13,95 +13,78 @@ function execPromise(cmd, cwd) {
     });
 }
 
-// EJECUTOR DE PRUEBAS POLÍGLOTA ADAPTABLE A CADA TIPO DE PROYECTO
-async function detectAndRunTests(worktreePath, customCommand = null) {
-    if (customCommand && typeof customCommand === 'string' && customCommand.trim().length > 0) {
-        console.log(`[Test Runner] Ejecutando comando personalizado: ${customCommand}`);
-        return await execPromise(customCommand, worktreePath);
-    }
-
-    // 1. Docker / Docker Compose
-    const hasDockerCompose = fs.existsSync(path.join(worktreePath, 'docker-compose.yml')) ||
-                             fs.existsSync(path.join(worktreePath, 'docker-compose.yaml')) ||
-                             fs.existsSync(path.join(worktreePath, 'compose.yaml'));
-
-    if (hasDockerCompose) {
-        try {
-            console.log('[Test Runner] Proyecto Docker detectado. Verificando pruebas en contenedor...');
-            if (fs.existsSync(path.join(worktreePath, 'artisan'))) {
-                return await execPromise('docker compose exec -T app php artisan test || docker compose run --rm app php artisan test', worktreePath);
-            }
-            if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
-                return await execPromise('docker compose exec -T app npm test || docker compose run --rm app npm test', worktreePath);
-            }
-        } catch (_) {
-            console.log('[Test Runner] Ejecución por Docker no disponible; intentando ejecución local...');
-        }
-    }
-
-    // 2. Laravel / PHP
-    if (fs.existsSync(path.join(worktreePath, 'artisan'))) {
-        console.log('[Test Runner] Proyecto Laravel detectado.');
-        const pestBin = path.join(worktreePath, 'vendor', 'bin', 'pest');
-        const phpunitBin = path.join(worktreePath, 'vendor', 'bin', 'phpunit');
-
-        if (fs.existsSync(pestBin) || fs.existsSync(pestBin + '.bat')) {
-            return await execPromise('php artisan test || ./vendor/bin/pest || vendor\\bin\\pest.bat', worktreePath);
-        }
-        if (fs.existsSync(phpunitBin) || fs.existsSync(phpunitBin + '.bat')) {
-            return await execPromise('php artisan test || ./vendor/bin/phpunit || vendor\\bin\\phpunit.bat', worktreePath);
-        }
-        return await execPromise('php artisan test', worktreePath);
-    }
-
-    // 3. Node.js / Vue / React / Next.js / Vite
-    if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
-        try {
-            const pkg = JSON.parse(fs.readFileSync(path.join(worktreePath, 'package.json'), 'utf8'));
-            if (pkg.scripts?.test && !pkg.scripts.test.includes('no test specified')) {
-                console.log('[Test Runner] Proyecto Node/Vue detectado.');
-                if (fs.existsSync(path.join(worktreePath, 'pnpm-lock.yaml'))) {
-                    return await execPromise('pnpm test', worktreePath);
-                }
-                if (fs.existsSync(path.join(worktreePath, 'yarn.lock'))) {
-                    return await execPromise('yarn test', worktreePath);
-                }
-                return await execPromise('npm test', worktreePath);
-            }
-        } catch (_) {}
-    }
-
-    // 4. Python (pytest / unittest)
-    if (fs.existsSync(path.join(worktreePath, 'pytest.ini')) ||
-        fs.existsSync(path.join(worktreePath, 'pyproject.toml')) ||
-        fs.existsSync(path.join(worktreePath, 'setup.py'))) {
-        console.log('[Test Runner] Proyecto Python detectado.');
-        return await execPromise('pytest || python -m unittest', worktreePath);
-    }
-
-    // 5. Go
-    if (fs.existsSync(path.join(worktreePath, 'go.mod'))) {
-        console.log('[Test Runner] Proyecto Go detectado.');
-        return await execPromise('go test ./...', worktreePath);
-    }
-
-    // 6. Rust
-    if (fs.existsSync(path.join(worktreePath, 'Cargo.toml'))) {
-        console.log('[Test Runner] Proyecto Rust detectado.');
-        return await execPromise('cargo test', worktreePath);
-    }
-
-    console.log('[Test Runner] Proyecto sin suite de pruebas declarada; validación aprobada por defecto.');
-    return 'No tests declared.';
-}
-
 class WorktreeService {
-    constructor(aiService) {
+    constructor(aiService, githubToken = null) {
         this.aiService = aiService;
+        this.githubToken = githubToken;
+        this.baseReposDir = 'D:\\OpenClaw\\workspace\\managed_repos';
         this.baseWorktreeDir = 'D:\\OpenClaw\\workspace\\worktrees';
-        if (!fs.existsSync(this.baseWorktreeDir)) {
-            try { fs.mkdirSync(this.baseWorktreeDir, { recursive: true }); } catch (_) {}
+        
+        [this.baseReposDir, this.baseWorktreeDir].forEach(dir => {
+            if (!fs.existsSync(dir)) {
+                try { fs.mkdirSync(dir, { recursive: true }); } catch (_) {}
+            }
+        });
+    }
+
+    // Asegura que tengamos una copia local del repositorio correcto
+    async ensureLocalRepo(repository) {
+        const [owner, repoName] = repository.split('/');
+        const repoDir = path.join(this.baseReposDir, `${owner}_${repoName}`);
+
+        if (!fs.existsSync(repoDir) || !fs.existsSync(path.join(repoDir, '.git'))) {
+            console.log(`[WorktreeService] Clonando repositorio ${repository} en ${repoDir}...`);
+            const authUrl = `https://github.com/${repository}.git`;
+            await execPromise(`git clone --filter=blob:none "${authUrl}" "${repoDir}"`, this.baseReposDir);
+        } else {
+            console.log(`[WorktreeService] Repositorio ${repository} encontrado en ${repoDir}. Actualizando...`);
+            await execPromise('git remote set-url origin https://github.com/' + repository + '.git', repoDir).catch(() => {});
         }
+        return repoDir;
+    }
+
+    // Inteligencia autónoma para detectar el stack y ejecutar los tests correspondientes
+    async autonomouslyDetectAndRunTests(worktreePath) {
+        console.log('[WorktreeService] Inspeccionando estructura del proyecto para determinar suite de tests...');
+        
+        // 1. Preguntamos al Agente Autónomo (OpenAI Luna / Gemini) qué comando de tests corresponde a los archivos presentes
+        try {
+            const fileList = fs.readdirSync(worktreePath);
+            const packageJson = fs.existsSync(path.join(worktreePath, 'package.json')) ? fs.readFileSync(path.join(worktreePath, 'package.json'), 'utf8').slice(0, 800) : null;
+            const composerJson = fs.existsSync(path.join(worktreePath, 'composer.json')) ? fs.readFileSync(path.join(worktreePath, 'composer.json'), 'utf8').slice(0, 800) : null;
+            
+            const prompt = `Analiza los siguientes archivos en la raíz del proyecto para determinar el comando de tests unitarios exacto:
+Archivos presentes: ${fileList.join(', ')}
+${packageJson ? 'package.json: ' + packageJson : ''}
+${composerJson ? 'composer.json: ' + composerJson : ''}
+
+INSTRUCCIÓN:
+Devuelve ÚNICAMENTE el comando exacto para ejecutar los tests (ejemplo: "npm test", "php artisan test", "docker compose exec -T app php artisan test", "pytest", "go test ./...", "cargo test").
+Si el proyecto no tiene tests declarados, devuelve "NONE".`;
+
+            let detectedCommand = await this.aiService.executePromptWithFallback(prompt);
+            detectedCommand = detectedCommand.replace(/\`\`/g, '').trim();
+
+            if (detectedCommand && detectedCommand !== 'NONE' && detectedCommand.length < 100) {
+                console.log(`[WorktreeService] Agente Autónomo determinó comando de tests: ${detectedCommand}`);
+                return await execPromise(detectedCommand, worktreePath);
+            }
+        } catch (aiErr) {
+            console.log('[WorktreeService] Detección por IA omitida, usando análisis heurístico:', aiErr.message);
+        }
+
+        // 2. Heurística de respaldo autónoma
+        if (fs.existsSync(path.join(worktreePath, 'artisan'))) {
+            return await execPromise('php artisan test || ./vendor/bin/pest || ./vendor/bin/phpunit', worktreePath);
+        }
+        if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
+            return await execPromise('npm test', worktreePath);
+        }
+        if (fs.existsSync(path.join(worktreePath, 'pytest.ini')) || fs.existsSync(path.join(worktreePath, 'pyproject.toml'))) {
+            return await execPromise('pytest', worktreePath);
+        }
+
+        return 'No tests declared.';
     }
 
     async resolveConflictContent(filePath, conflictedContent, baseBranch, headBranch) {
@@ -125,30 +108,34 @@ INSTRUCCIONES CRÍTICAS:
         return resolved;
     }
 
-    async resolveMergeConflictsInWorktree({ repoPath = 'D:\\OpenClaw\\workspace\\github-pet-widget', pull_number, head_branch, base_branch = 'main', customTestCmd = null }) {
+    async resolveMergeConflictsInWorktree({ repository, pull_number, head_branch = 'dev', base_branch = 'main' }) {
+        const repoPath = await this.ensureLocalRepo(repository || 'Emmaqqs/opa');
         const worktreePath = path.join(this.baseWorktreeDir, `pr_${pull_number}_merge_${Date.now()}`);
         const result = { success: false, worktreePath, resolvedFiles: [], testsPassed: false, pushed: false };
 
         try {
-            // 1. Fetch de ramas remotas
-            await execPromise(`git fetch origin ${head_branch} ${base_branch}`, repoPath);
+            // Fetch usando el refspec universal de GitHub (funciona para cualquier rama o fork)
+            console.log(`[WorktreeService] Obteniendo PR #${pull_number} vía refspec de GitHub...`);
+            await execPromise(`git fetch origin pull/${pull_number}/head:pr_${pull_number}_${Date.now()} ${base_branch}:origin/${base_branch}`, repoPath).catch(async () => {
+                await execPromise('git fetch origin', repoPath);
+            });
 
-            // 2. Crear worktree temporal
-            await execPromise(`git worktree add -B merge-pr-${pull_number} "${worktreePath}" origin/${head_branch}`, repoPath);
+            // Crear worktree
+            await execPromise(`git worktree add -B merge-pr-${pull_number} "${worktreePath}" pull/${pull_number}/head`, repoPath).catch(async () => {
+                await execPromise(`git worktree add -B merge-pr-${pull_number} "${worktreePath}" origin/${head_branch}`, repoPath);
+            });
 
-            // 3. Intentar merge
+            // Intentar merge
             try {
                 await execPromise(`git merge origin/${base_branch} --no-edit`, worktreePath);
                 result.success = true;
                 result.message = 'Merge limpio sin conflictos.';
             } catch (mergeErr) {
-                // Conflictos de merge detectados
                 const statusOutput = await execPromise('git diff --name-only --diff-filter=U', worktreePath);
                 const conflictedFiles = statusOutput.split('\n').map(f => f.trim()).filter(Boolean);
 
                 if (conflictedFiles.length === 0) throw mergeErr;
 
-                // 4. Resolver cada archivo en conflicto con la IA (OpenAI Luna / Gemini)
                 for (const file of conflictedFiles) {
                     const fullFilePath = path.join(worktreePath, file);
                     if (fs.existsSync(fullFilePath)) {
@@ -160,27 +147,26 @@ INSTRUCCIONES CRÍTICAS:
                     }
                 }
 
-                // 5. Commit del merge resuelto
                 await execPromise('git commit -m "fix(merge): resolve conflicts automatically via OpenClaw AI"', worktreePath);
                 result.success = true;
             }
 
-            // 6. Ejecutar tests según el tipo de proyecto (Laravel / Vue / Docker / Python)
+            // Ejecución autónoma de tests
             try {
-                await detectAndRunTests(worktreePath, customTestCmd);
+                await this.autonomouslyDetectAndRunTests(worktreePath);
                 result.testsPassed = true;
             } catch (testErr) {
                 result.testsPassed = false;
                 result.testError = testErr.message;
             }
 
-            // 7. Push directo a GitHub si los tests pasaron
+            // Push a la rama de GitHub
             if (result.testsPassed) {
                 await execPromise(`git push origin HEAD:${head_branch}`, worktreePath);
                 result.pushed = true;
-                result.message = `✅ Conflictos de merge resueltos y pusheados a ${head_branch} con tests pasando.`;
+                result.message = `✅ Conflictos resueltos y pusheados con éxito a ${head_branch} con tests pasando.`;
             } else {
-                result.message = '⚠️ Conflictos resueltos localmente pero los tests fallaron; no se realizó push por seguridad.';
+                result.message = '⚠️ Conflictos resueltos localmente pero los tests fallaron; push cancelado.';
             }
 
             return result;
@@ -188,25 +174,27 @@ INSTRUCCIONES CRÍTICAS:
             result.error = err.message;
             return result;
         } finally {
-            // Limpieza inmediata del worktree para no dejar ramas huérfanas
             try {
                 await execPromise(`git worktree remove --force "${worktreePath}"`, repoPath);
             } catch (_) {}
         }
     }
 
-    async autoFixReviewFeedbackInWorktree({ repoPath = 'D:\\OpenClaw\\workspace\\github-pet-widget', pull_number, head_branch, feedbackText, customTestCmd = null }) {
+    async autoFixReviewFeedbackInWorktree({ repository, pull_number, head_branch = 'dev', feedbackText }) {
+        const repoPath = await this.ensureLocalRepo(repository || 'Emmaqqs/opa');
         const worktreePath = path.join(this.baseWorktreeDir, `pr_${pull_number}_fix_${Date.now()}`);
         const result = { success: false, worktreePath, modifiedFiles: [], testsPassed: false, pushed: false };
 
         try {
-            // 1. Fetch de la rama del PR
-            await execPromise(`git fetch origin ${head_branch}`, repoPath);
+            console.log(`[WorktreeService] Obteniendo PR #${pull_number} para auto-fix...`);
+            await execPromise(`git fetch origin pull/${pull_number}/head:pr_fix_${pull_number}_${Date.now()}`, repoPath).catch(async () => {
+                await execPromise('git fetch origin', repoPath);
+            });
 
-            // 2. Crear worktree aislado
-            await execPromise(`git worktree add -B fix-pr-${pull_number} "${worktreePath}" origin/${head_branch}`, repoPath);
+            await execPromise(`git worktree add -B fix-pr-${pull_number} "${worktreePath}" pull/${pull_number}/head`, repoPath).catch(async () => {
+                await execPromise(`git worktree add -B fix-pr-${pull_number} "${worktreePath}" origin/${head_branch}`, repoPath);
+            });
 
-            // 3. Detectar archivos involucrados en el PR
             const filesOutput = await execPromise('git diff --name-only origin/main...HEAD', worktreePath).catch(() => '');
             const files = filesOutput.split('\n').map(f => f.trim()).filter(Boolean);
 
@@ -235,20 +223,17 @@ Devuelve ÚNICAMENTE el código completo y final del archivo, sin explicaciones 
                     }
                 }
 
-                // 4. Commit del fix
                 await execPromise('git commit -m "fix: address review feedback automatically via OpenClaw AI"', worktreePath);
             }
 
-            // 5. Ejecutar tests según el stack del proyecto
             try {
-                await detectAndRunTests(worktreePath, customTestCmd);
+                await this.autonomouslyDetectAndRunTests(worktreePath);
                 result.testsPassed = true;
             } catch (testErr) {
                 result.testsPassed = false;
                 result.testError = testErr.message;
             }
 
-            // 6. Push automático si los tests pasaron
             if (result.testsPassed && result.modifiedFiles.length > 0) {
                 await execPromise(`git push origin HEAD:${head_branch}`, worktreePath);
                 result.pushed = true;
@@ -256,7 +241,7 @@ Devuelve ÚNICAMENTE el código completo y final del archivo, sin explicaciones 
                 result.message = `✅ Feedback resuelto y cambios pusheados a ${head_branch} con tests pasando.`;
             } else {
                 result.success = result.modifiedFiles.length > 0;
-                result.message = 'Modificaciones realizadas localmente pero tests fallaron; no se realizó push.';
+                result.message = 'Fixes aplicados localmente pero tests fallaron; push cancelado.';
             }
 
             return result;
@@ -264,7 +249,6 @@ Devuelve ÚNICAMENTE el código completo y final del archivo, sin explicaciones 
             result.error = err.message;
             return result;
         } finally {
-            // Limpieza del worktree
             try {
                 await execPromise(`git worktree remove --force "${worktreePath}"`, repoPath);
             } catch (_) {}

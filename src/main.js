@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const GitHubService = require('./github_service');
 const WorktreeService = require('./worktree_service');
-const { AIService, DEFAULT_REVIEW_PROMPT_TEMPLATE, DEFAULT_AUTOFIX_COMMIT_TEMPLATE, DEFAULT_MERGE_CONFLICT_TEMPLATE, DEFAULT_AUTOREVIEW_EVAL_TEMPLATE } = require('./ai_service');
+const { AIService, DEFAULT_REVIEW_PROMPT_TEMPLATE, DEFAULT_AUTOFIX_COMMIT_TEMPLATE, DEFAULT_MERGE_CONFLICT_TEMPLATE } = require('./ai_service');
 
 let mainWindow;
 let github = null;
@@ -73,9 +73,8 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
     aiService = new AIService(config.ai_templates || {});
-    worktreeService = new WorktreeService(aiService);
+    worktreeService = new WorktreeService(aiService, config.token || null);
 
-    // Guardar posición al terminar de mover (debounce 500ms)
     mainWindow.on('moved', () => {
         if (savePositionTimer) clearTimeout(savePositionTimer);
         savePositionTimer = setTimeout(() => {
@@ -109,8 +108,8 @@ async function initializeWithToken(token) {
         }
 
         currentToken = token;
+        worktreeService = new WorktreeService(aiService, token);
 
-        // Historial de tokens
         const cfg = loadConfig();
         const history = (cfg.token_history || []).filter(h => h.token !== token);
         history.unshift({ token, username: user.login, addedAt: new Date().toISOString() });
@@ -142,10 +141,11 @@ async function runAutoPilotTasks(status) {
         const key = `conflict_${pr.url}_${pr.updated_at}`;
         if (!autoPilotProcessing.has(key)) {
             autoPilotProcessing.add(key);
-            console.log(`[Auto-Pilot] Resolviendo conflictos para PR #${pr.number}...`);
+            console.log(`[Auto-Pilot] Resolviendo conflictos para PR #${pr.number} en ${pr.repository}...`);
             mainWindow?.webContents.send('autopilot-status', { text: `🔀 Auto-Pilot: Resolviendo PR #${pr.number}...` });
             
             worktreeService.resolveMergeConflictsInWorktree({
+                repository: pr.repository,
                 pull_number: pr.number,
                 head_branch: pr.head_branch,
                 base_branch: pr.base_branch || 'main'
@@ -162,10 +162,11 @@ async function runAutoPilotTasks(status) {
             const key = `fix_${pr.url}_${pr.updated_at}`;
             if (!autoPilotProcessing.has(key)) {
                 autoPilotProcessing.add(key);
-                console.log(`[Auto-Pilot] Auto-Fix para PR #${pr.number}...`);
+                console.log(`[Auto-Pilot] Auto-Fix para PR #${pr.number} en ${pr.repository}...`);
                 mainWindow?.webContents.send('autopilot-status', { text: `⚡ Auto-Pilot: Aplicando fixes a PR #${pr.number}...` });
                 
                 worktreeService.autoFixReviewFeedbackInWorktree({
+                    repository: pr.repository,
                     pull_number: pr.number,
                     head_branch: pr.head_branch,
                     feedbackText: pr.state
@@ -203,7 +204,6 @@ ipcMain.on('set-token', async (event, token) => {
 
 ipcMain.on('refresh-status', () => { updateStatus(); });
 
-// Marcar PR como visto
 ipcMain.on('mark-seen', (event, { url, updatedAt }) => {
     const existing = loadConfig().seen_prs || {};
     saveConfig({ seen_prs: { ...existing, [url]: updatedAt } });
@@ -224,7 +224,6 @@ ipcMain.on('get-token-history', (event) => {
     event.reply('token-history', history);
 });
 
-// Configuración de Prompts e IA y Auto-Pilot
 ipcMain.on('get-ai-templates', (event) => {
     const config = loadConfig();
     const service = new AIService(config.ai_templates || {});
@@ -249,7 +248,6 @@ ipcMain.on('reset-ai-templates', (event) => {
         review_prompt_template: DEFAULT_REVIEW_PROMPT_TEMPLATE,
         autofix_commit_template: DEFAULT_AUTOFIX_COMMIT_TEMPLATE,
         merge_conflict_template: DEFAULT_MERGE_CONFLICT_TEMPLATE,
-        autoreview_eval_template: DEFAULT_AUTOREVIEW_EVAL_TEMPLATE,
     };
     saveConfig({ ai_templates: defaultTemplates, autopilot_enabled: false });
     if (aiService) aiService.config = defaultTemplates;
@@ -259,9 +257,7 @@ ipcMain.on('reset-ai-templates', (event) => {
     });
 });
 
-// ACCIONES 1-CLICK END-TO-END DIRECTAS (SIN OUTPUT MANUAL):
-
-// 1. Revisar y publicar automáticamente en GitHub
+// 1. Revisar y publicar en GitHub
 ipcMain.on('execute-auto-review', async (event, pr) => {
     if (!github || !aiService) {
         event.reply('action-completed', { success: false, error: 'Servicio no inicializado' });
@@ -275,7 +271,7 @@ ipcMain.on('execute-auto-review', async (event, pr) => {
         
         event.reply('action-completed', {
             success: publishResult.success,
-            message: `✅ Review generado y publicado exitosamente en GitHub para PR #${pr.number}!`,
+            message: `✅ Review publicado exitosamente en GitHub para PR #${pr.number}!`,
             error: publishResult.error
         });
         updateStatus();
@@ -284,7 +280,7 @@ ipcMain.on('execute-auto-review', async (event, pr) => {
     }
 });
 
-// 2. Auto-Fix en Worktree + Push a la rama del PR
+// 2. Auto-Fix en Worktree + Push
 ipcMain.on('execute-autofix-worktree', async (event, pr) => {
     if (!worktreeService) {
         event.reply('action-completed', { success: false, error: 'Worktree service no disponible' });
@@ -292,8 +288,9 @@ ipcMain.on('execute-autofix-worktree', async (event, pr) => {
     }
     try {
         const result = await worktreeService.autoFixReviewFeedbackInWorktree({
+            repository: pr.repository,
             pull_number: pr.number,
-            head_branch: pr.head_branch || 'main',
+            head_branch: pr.head_branch || 'dev',
             feedbackText: pr.state || 'Corregir feedback de revisión'
         });
 
@@ -321,8 +318,9 @@ ipcMain.on('execute-merge-conflict-worktree', async (event, pr) => {
     }
     try {
         const result = await worktreeService.resolveMergeConflictsInWorktree({
+            repository: pr.repository,
             pull_number: pr.number,
-            head_branch: pr.head_branch || 'main',
+            head_branch: pr.head_branch || 'dev',
             base_branch: pr.base_branch || 'main'
         });
 
