@@ -27,7 +27,6 @@ class WorktreeService {
         });
     }
 
-    // Asegura que tengamos una copia local del repositorio correcto
     async ensureLocalRepo(repository) {
         const [owner, repoName] = repository.split('/');
         const repoDir = path.join(this.baseReposDir, `${owner}_${repoName}`);
@@ -43,11 +42,9 @@ class WorktreeService {
         return repoDir;
     }
 
-    // Inteligencia autónoma para detectar el stack y ejecutar los tests correspondientes
     async autonomouslyDetectAndRunTests(worktreePath) {
         console.log('[WorktreeService] Inspeccionando estructura del proyecto para determinar suite de tests...');
         
-        // 1. Preguntamos al Agente Autónomo (OpenAI Luna / Gemini) qué comando de tests corresponde a los archivos presentes
         try {
             const fileList = fs.readdirSync(worktreePath);
             const packageJson = fs.existsSync(path.join(worktreePath, 'package.json')) ? fs.readFileSync(path.join(worktreePath, 'package.json'), 'utf8').slice(0, 800) : null;
@@ -66,14 +63,14 @@ Si el proyecto no tiene tests declarados, devuelve "NONE".`;
             detectedCommand = detectedCommand.replace(/\`\`/g, '').trim();
 
             if (detectedCommand && detectedCommand !== 'NONE' && detectedCommand.length < 100) {
-                console.log(`[WorktreeService] Agente Autónomo determinó comando de tests: ${detectedCommand}`);
+                console.log(`[WorktreeService] Agente determinó comando de tests: ${detectedCommand}`);
                 return await execPromise(detectedCommand, worktreePath);
             }
         } catch (aiErr) {
-            console.log('[WorktreeService] Detección por IA omitida, usando análisis heurístico:', aiErr.message);
+            console.log('[WorktreeService] Detección por IA omitida:', aiErr.message);
         }
 
-        // 2. Heurística de respaldo autónoma
+        // Heurística de respaldo
         if (fs.existsSync(path.join(worktreePath, 'artisan'))) {
             return await execPromise('php artisan test || ./vendor/bin/pest || ./vendor/bin/phpunit', worktreePath);
         }
@@ -85,6 +82,51 @@ Si el proyecto no tiene tests declarados, devuelve "NONE".`;
         }
 
         return 'No tests declared.';
+    }
+
+    // BUCLE DE AUTO-CURACIÓN ITERATIVA (SELF-HEALING TEST LOOP)
+    async iterativeSelfHealingTestLoop(worktreePath, targetFiles, maxIterations = 3) {
+        let lastError = null;
+
+        for (let iteration = 1; iteration <= maxIterations; iteration++) {
+            console.log(`[Self-Healing] Ejecutando suite de pruebas (Intento ${iteration}/${maxIterations})...`);
+            try {
+                const testOutput = await this.autonomouslyDetectAndRunTests(worktreePath);
+                console.log('[Self-Healing] ✅ Pruebas pasaron exitosamente.');
+                return { success: true, iterations: iteration, output: testOutput };
+            } catch (err) {
+                lastError = err.message || 'Error en tests';
+                console.warn(`[Self-Healing] ⚠️ Fallo en pruebas (Intento ${iteration}): ${lastError.slice(0, 150)}...`);
+
+                if (iteration === maxIterations) break;
+
+                // Reparar los archivos objetivo alimentando el error a la IA
+                for (const file of targetFiles) {
+                    const fullPath = path.join(worktreePath, file);
+                    if (fs.existsSync(fullPath)) {
+                        const currentCode = fs.readFileSync(fullPath, 'utf8');
+                        const healPrompt = `Los tests unitarios del proyecto fallaron con el siguiente error:
+
+ERROR DE TESTS:
+${lastError.slice(0, 2000)}
+
+CÓDIGO ACTUAL DEL ARCHIVO ${file}:
+${currentCode}
+
+INSTRUCCIONES CRÍTICAS:
+Corrige el código para resolver el error específico de los tests preservando la funcionalidad.
+Devuelve ÚNICAMENTE el código limpio final del archivo, sin explicaciones ni markdown extra.`;
+
+                        let healedCode = await this.aiService.executePromptWithFallback(healPrompt);
+                        healedCode = healedCode.replace(/^\`\`\`[a-zA-Z]*\n/g, '').replace(/\n\`\`\`$/g, '');
+                        fs.writeFileSync(fullPath, healedCode, 'utf8');
+                        await execPromise(`git add "${file}"`, worktreePath);
+                    }
+                }
+            }
+        }
+
+        return { success: false, error: lastError };
     }
 
     async resolveConflictContent(filePath, conflictedContent, baseBranch, headBranch) {
@@ -114,18 +156,15 @@ INSTRUCCIONES CRÍTICAS:
         const result = { success: false, worktreePath, resolvedFiles: [], testsPassed: false, pushed: false };
 
         try {
-            // Fetch usando el refspec universal de GitHub (funciona para cualquier rama o fork)
             console.log(`[WorktreeService] Obteniendo PR #${pull_number} vía refspec de GitHub...`);
             await execPromise(`git fetch origin pull/${pull_number}/head:pr_${pull_number}_${Date.now()} ${base_branch}:origin/${base_branch}`, repoPath).catch(async () => {
                 await execPromise('git fetch origin', repoPath);
             });
 
-            // Crear worktree
             await execPromise(`git worktree add -B merge-pr-${pull_number} "${worktreePath}" pull/${pull_number}/head`, repoPath).catch(async () => {
                 await execPromise(`git worktree add -B merge-pr-${pull_number} "${worktreePath}" origin/${head_branch}`, repoPath);
             });
 
-            // Intentar merge
             try {
                 await execPromise(`git merge origin/${base_branch} --no-edit`, worktreePath);
                 result.success = true;
@@ -151,22 +190,16 @@ INSTRUCCIONES CRÍTICAS:
                 result.success = true;
             }
 
-            // Ejecución autónoma de tests
-            try {
-                await this.autonomouslyDetectAndRunTests(worktreePath);
-                result.testsPassed = true;
-            } catch (testErr) {
-                result.testsPassed = false;
-                result.testError = testErr.message;
-            }
+            // Auto-curación iterativa de tests
+            const healResult = await this.iterativeSelfHealingTestLoop(worktreePath, result.resolvedFiles);
+            result.testsPassed = healResult.success;
 
-            // Push a la rama de GitHub
             if (result.testsPassed) {
                 await execPromise(`git push origin HEAD:${head_branch}`, worktreePath);
                 result.pushed = true;
                 result.message = `✅ Conflictos resueltos y pusheados con éxito a ${head_branch} con tests pasando.`;
             } else {
-                result.message = '⚠️ Conflictos resueltos localmente pero los tests fallaron; push cancelado.';
+                result.message = `⚠️ Conflictos resueltos localmente pero los tests fallaron tras ${healResult.iterations || 3} intentos; push cancelado por seguridad.`;
             }
 
             return result;
@@ -226,13 +259,9 @@ Devuelve ÚNICAMENTE el código completo y final del archivo, sin explicaciones 
                 await execPromise('git commit -m "fix: address review feedback automatically via OpenClaw AI"', worktreePath);
             }
 
-            try {
-                await this.autonomouslyDetectAndRunTests(worktreePath);
-                result.testsPassed = true;
-            } catch (testErr) {
-                result.testsPassed = false;
-                result.testError = testErr.message;
-            }
+            // Auto-curación iterativa de tests
+            const healResult = await this.iterativeSelfHealingTestLoop(worktreePath, result.modifiedFiles);
+            result.testsPassed = healResult.success;
 
             if (result.testsPassed && result.modifiedFiles.length > 0) {
                 await execPromise(`git push origin HEAD:${head_branch}`, worktreePath);
@@ -241,7 +270,7 @@ Devuelve ÚNICAMENTE el código completo y final del archivo, sin explicaciones 
                 result.message = `✅ Feedback resuelto y cambios pusheados a ${head_branch} con tests pasando.`;
             } else {
                 result.success = result.modifiedFiles.length > 0;
-                result.message = 'Fixes aplicados localmente pero tests fallaron; push cancelado.';
+                result.message = 'Fixes aplicados localmente pero tests fallaron tras reintentos; push cancelado.';
             }
 
             return result;

@@ -104,23 +104,45 @@ class AIService {
         return result;
     }
 
-    // 1. LLAMADA PRIMARIA A OPENAI LUNA (VÍA OPENCLAW GATEWAY / CLI)
+    // 1. LLAMADA PRIMARIA A OPENAI LUNA (VÍA OPENCLAW AGENT MAIN)
     async callOpenAILuna(prompt) {
         return new Promise((resolve, reject) => {
-            const sanitizedPrompt = prompt.replace(/"/g, '\\"').slice(0, 5000);
-            const cmd = `openclaw agent --model openai/gpt-5.6-luna --message "${sanitizedPrompt}"`;
-            exec(cmd, { cwd: 'D:\\OpenClaw', timeout: 45000 }, (error, stdout, stderr) => {
+            const tempPromptFile = path.join('D:\\OpenClaw\\workspace', `prompt_${Date.now()}.txt`);
+            fs.writeFileSync(tempPromptFile, prompt, 'utf8');
+
+            const cmd = `openclaw agent --agent main --message "Lee el archivo ${tempPromptFile} y genera la respuesta solicitada."`;
+            exec(cmd, { cwd: 'D:\\OpenClaw', timeout: 60000 }, (error, stdout, stderr) => {
+                try { fs.unlinkSync(tempPromptFile); } catch (_) {}
+
                 if (!error && stdout && stdout.length > 20) {
-                    console.log('[AI Engine] Respuesta generada exitosamente con OpenAI Luna.');
-                    resolve(stdout.trim());
-                } else {
-                    reject(new Error(stderr || error?.message || 'OpenClaw OpenAI Luna no respondió.'));
+                    const lines = stdout.split('\n');
+                    const cleanLines = lines.filter(l => 
+                        !l.startsWith('[plugins]') && 
+                        !l.startsWith('EMBEDDED FALLBACK') &&
+                        !l.startsWith('Gateway target') &&
+                        !l.startsWith('Source:') &&
+                        !l.startsWith('Config:') &&
+                        !l.startsWith('Bind:') &&
+                        !l.startsWith('Possible causes') &&
+                        !l.includes('openclaw doctor') &&
+                        !l.startsWith('tools policy:') &&
+                        !l.startsWith('[tools]') &&
+                        !l.startsWith('[agents/tool-policy]') &&
+                        !l.startsWith('[agent/embedded]') &&
+                        !l.startsWith('[agent] run')
+                    );
+                    const cleanResponse = cleanLines.join('\n').trim();
+                    if (cleanResponse.length > 10) {
+                        console.log('[AI Engine] ✅ Respuesta generada exitosamente con OpenAI Luna.');
+                        return resolve(cleanResponse);
+                    }
                 }
+                reject(new Error(stderr || error?.message || 'OpenClaw Luna no devolvió contenido'));
             });
         });
     }
 
-    // 2. LLAMADA DE RESPALDO Y AUDITORÍA A GOOGLE GEMINI (POOL ROTATIVO)
+    // 2. LLAMADA DE RESPALDO A GOOGLE GEMINI (POOL MULTI-MODELO)
     async callGeminiWithRotation(prompt) {
         if (!this.googleKeys || this.googleKeys.length === 0) {
             this.googleKeys = loadGoogleKeys(this.config);
@@ -138,14 +160,14 @@ class AIService {
                     const result = await this._requestGemini(key, model, prompt);
                     this.currentModelIndex = (this.currentModelIndex + m) % totalModels;
                     this.currentKeyIndex = (this.currentKeyIndex + k) % totalKeys;
-                    console.log(`[AI Engine] Respuesta generada exitosamente con Gemini (${model}).`);
+                    console.log(`[AI Engine] ✅ Respuesta generada con Gemini (${model}).`);
                     return result;
                 } catch (err) {
                     continue;
                 }
             }
         }
-        throw new Error('Todas las opciones de IA (OpenAI Luna y Gemini) fallaron o están saturadas.');
+        throw new Error('Todas las opciones de IA fallaron.');
     }
 
     _requestGemini(apiKey, model, prompt) {
@@ -201,12 +223,12 @@ class AIService {
         });
     }
 
-    // MOTOR HÍBRIDO: PRIORIDAD 1 OPENAI LUNA -> PRIORIDAD 2 GEMINI MULTI-MODELO
+    // MOTOR HÍBRIDO: 1. OpenAI Luna -> 2. Gemini
     async executePromptWithFallback(prompt) {
         try {
             return await this.callOpenAILuna(prompt);
         } catch (lunaErr) {
-            console.log('[AI Engine] OpenAI Luna no disponible, ejecutando con Gemini Pool de respaldo...');
+            console.log(`[AI Engine] Nota de OpenAI Luna (${lunaErr.message}). Usando Gemini Pool de respaldo...`);
             return await this.callGeminiWithRotation(prompt);
         }
     }

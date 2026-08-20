@@ -70,6 +70,9 @@ function createWindow() {
         }
     });
 
+    if (alwaysOnTop) {
+        mainWindow.setAlwaysOnTop(true, 'floating');
+    }
     mainWindow.loadFile(path.join(__dirname, 'index.html'));
 
     aiService = new AIService(config.ai_templates || {});
