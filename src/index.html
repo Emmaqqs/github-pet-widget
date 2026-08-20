@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: transparent;
+            user-select: none;
+        }
+
+        #app {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+            padding-bottom: 20px;
+        }
+
+        #drag-handle {
+            width: 100%;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: move;
+            color: rgba(0,0,0,0.18);
+            font-size: 13px;
+            letter-spacing: 4px;
+            flex-shrink: 0;
+            user-select: none;
+        }
+
+        #drag-handle:hover {
+            color: rgba(0,0,0,0.35);
+        }
+
+        #bubble {
+            background: rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: 14px;
+            padding: 12px;
+            margin-bottom: 12px;
+            width: 270px;
+            max-height: 220px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+            font-size: 12px;
+            color: #24292f;
+            display: block;
+            position: relative;
+            -webkit-app-region: no-drag;
+            overflow-y: auto;
+        }
+
+        #bubble::after {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            border-width: 8px 8px 0;
+            border-style: solid;
+            border-color: rgba(255, 255, 255, 0.96) transparent transparent;
+        }
+
+        .section-title {
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 6px;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .title-review { color: #d97706; }
+        .title-rereview { color: #2563eb; }
+        .title-action { color: #dc2626; }
+
+        .alert-item {
+            margin-bottom: 4px;
+            padding: 4px 6px;
+            background: #f6f8fa;
+            border-radius: 6px;
+            border-left: 3px solid #d0d7de;
+        }
+
+        .alert-item a {
+            color: #0969da;
+            text-decoration: none;
+            display: block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-weight: 500;
+        }
+
+        .alert-item a:hover { text-decoration: underline; }
+
+        .token-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .token-input {
+            width: 100%;
+            padding: 6px 8px;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            font-size: 11px;
+            font-family: monospace;
+            outline: none;
+        }
+
+        .token-input:focus {
+            border-color: #0969da;
+            box-shadow: 0 0 0 2px rgba(9, 105, 218, 0.2);
+        }
+
+        .btn-primary {
+            background: #2da44e;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .btn-primary:hover { background: #2c974b; }
+
+        .btn-secondary {
+            background: #f6f8fa;
+            color: #24292f;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            padding: 5px;
+            font-size: 10px;
+            cursor: pointer;
+            margin-top: 4px;
+            text-align: center;
+            display: block;
+            text-decoration: none;
+        }
+
+        .btn-secondary:hover { background: #eaedf0; }
+
+        /* Historial de tokens */
+        #token-history-list {
+            display: none;
+            margin-top: 6px;
+        }
+
+        #token-history-list .history-label {
+            font-size: 10px;
+            color: #57606a;
+            margin-bottom: 4px;
+        }
+
+        .token-chip {
+            display: inline-block;
+            margin: 2px;
+            padding: 3px 8px;
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            border-radius: 12px;
+            font-size: 10px;
+            color: #0969da;
+            cursor: pointer;
+            white-space: nowrap;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
+        }
+
+        .token-chip:hover {
+            background: #ddf4ff;
+            border-color: #0969da;
+        }
+
+        /* Botón Marcar como Visto */
+        .btn-seen {
+            background: none;
+            border: 1px solid #d0d7de;
+            border-radius: 4px;
+            color: #57606a;
+            font-size: 9px;
+            padding: 2px 5px;
+            cursor: pointer;
+            float: right;
+            margin-left: 4px;
+            flex-shrink: 0;
+            line-height: 1.4;
+        }
+        .btn-seen:hover {
+            background: #f0fdf4;
+            border-color: #10b981;
+            color: #10b981;
+        }
+
+        .status-badge {
+            display: inline-block;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            margin-top: 4px;
+        }
+
+        /* Contenedor de la mascota con badge */
+        #pet-container {
+            position: relative;
+            display: inline-block;
+            -webkit-app-region: no-drag;
+        }
+
+        /* Badge numérico de pendientes */
+        #badge {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            background: #ef4444;
+            color: white;
+            font-size: 10px;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 9px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+            border: 2px solid rgba(255,255,255,0.9);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            z-index: 10;
+            line-height: 1;
+        }
+
+        /* Mascota CSS */
+        #pet {
+            width: 80px;
+            height: 80px;
+            position: relative;
+            cursor: pointer;
+            filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25));
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        #pet:hover { transform: scale(1.08); }
+
+        .body {
+            width: 62px;
+            height: 52px;
+            background: #10b981;
+            border-radius: 50% 50% 42% 42%;
+            position: absolute;
+            bottom: 0;
+            left: 9px;
+            transition: background 0.4s;
+        }
+
+        .head {
+            width: 52px;
+            height: 46px;
+            background: #10b981;
+            border-radius: 50%;
+            position: absolute;
+            top: 4px;
+            left: 14px;
+            transition: background 0.4s;
+        }
+
+        .ear {
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 20px solid #10b981;
+            position: absolute;
+            top: -6px;
+            transition: border-color 0.4s;
+        }
+
+        .ear.left { left: 14px; transform: rotate(-22deg); }
+        .ear.right { right: 14px; transform: rotate(22deg); }
+
+        .eye {
+            width: 7px;
+            height: 7px;
+            background: #1f2937;
+            border-radius: 50%;
+            position: absolute;
+            top: 18px;
+            animation: blink 4s infinite;
+        }
+
+        .eye.left { left: 14px; }
+        .eye.right { right: 14px; }
+
+        .nose {
+            width: 4px;
+            height: 3px;
+            background: #ec4899;
+            border-radius: 50%;
+            position: absolute;
+            top: 24px;
+            left: 24px;
+        }
+
+        /* Estados de color */
+        .state-happy .body, .state-happy .head { background: #10b981; }
+        .state-happy .ear { border-bottom-color: #10b981; }
+
+        .state-alert .body, .state-alert .head { background: #f59e0b; }
+        .state-alert .ear { border-bottom-color: #f59e0b; }
+
+        .state-rereview .body, .state-rereview .head { background: #3b82f6; }
+        .state-rereview .ear { border-bottom-color: #3b82f6; }
+
+        .state-action .body, .state-action .head { background: #ef4444; }
+        .state-action .ear { border-bottom-color: #ef4444; }
+
+        .state-disconnected .body, .state-disconnected .head { background: #9ca3af; }
+        .state-disconnected .ear { border-bottom-color: #9ca3af; }
+
+        /* Animaciones */
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-6px); }
+        }
+
+        @keyframes blink {
+            0%, 96%, 100% { transform: scaleY(1); }
+            98% { transform: scaleY(0.1); }
+        }
+
+        @keyframes jump-alert {
+            0%   { transform: translateY(0) scale(1); }
+            20%  { transform: translateY(-16px) scale(1.12); }
+            40%  { transform: translateY(0) scale(0.96); }
+            55%  { transform: translateY(-8px) scale(1.06); }
+            70%  { transform: translateY(0) scale(1); }
+            85%  { transform: translateY(-3px) scale(1.02); }
+            100% { transform: translateY(0) scale(1); }
+        }
+
+        @keyframes flash-glow {
+            0%   { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
+            30%  { filter: drop-shadow(0 0 22px rgba(245,158,11,0.95)) brightness(1.25); }
+            60%  { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
+            80%  { filter: drop-shadow(0 0 14px rgba(245,158,11,0.7)); }
+            100% { filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25)); }
+        }
+
+        .anim-bounce { animation: bounce 1.8s ease-in-out infinite; }
+
+        .anim-new-alert {
+            animation: jump-alert 0.75s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards,
+                       flash-glow 0.75s ease-in-out forwards !important;
+        }
+    </style>
+</head>
+<body class="state-disconnected">
+    <div id="app">
+        <!-- Handle de arrastre — clic y arrastra para mover la ventana -->
+        <div id="drag-handle">⠿ ⠿ ⠿</div>
+
+        <div id="bubble">
+            <!-- Sección de configuración de Token -->
+            <div id="auth-section">
+                <div style="font-weight:600; margin-bottom:6px;">🐾 Conectar a GitHub</div>
+                <div style="font-size:11px; color:#57609a; margin-bottom:8px;">
+                    Pega tu Personal Access Token (classic) con permisos <code>repo</code> y <code>read:user</code>:
+                </div>
+                <div class="token-input-group">
+                    <input type="password" id="token-input" class="token-input" placeholder="ghp_..." autocomplete="off" />
+                    <button id="save-token-btn" class="btn-primary" onclick="saveToken()">Guardar y Conectar</button>
+                    <a href="#" class="btn-secondary" onclick="openTokenHelp()">🔑 Generar token en GitHub</a>
+                </div>
+                <div id="token-history-list">
+                    <div class="history-label">🕐 Tokens recientes:</div>
+                    <div id="token-chips"></div>
+                </div>
+                <div id="auth-error-msg" style="color:#cf222e; font-size:11px; margin-top:6px; display:none;"></div>
+            </div>
+
+            <!-- Sección de Alertas -->
+            <div id="alerts-section" style="display:none;">
+                <div id="user-header" style="font-size:11px; color:#57606a; border-bottom:1px solid #d0d7de; padding-bottom:4px; margin-bottom:6px;"></div>
+                <div id="alerts-list">Buscando PRs...</div>
+                <div style="text-align:right; margin-top:8px;">
+                    <a href="#" onclick="showSettings()" style="font-size:10px; color:#57606a; text-decoration:none;">⚙️ Cambiar Token</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mascota con badge de pendientes -->
+        <div id="pet-container">
+            <div id="badge">0</div>
+            <div id="pet" class="anim-bounce">
+                <div class="ear left"></div>
+                <div class="ear right"></div>
+                <div class="body"></div>
+                <div class="head">
+                    <div class="eye left"></div>
+                    <div class="eye right"></div>
+                    <div class="nose"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="renderer.js"></script>
+</body>
+</html>

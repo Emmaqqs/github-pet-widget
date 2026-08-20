@@ -1,0 +1,2 @@
+"""GitHub Pet Widget package."""
+

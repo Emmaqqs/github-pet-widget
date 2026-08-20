@@ -1,0 +1,18 @@
+{
+  "name": "github-pet-widget",
+  "version": "1.0.0",
+  "description": "Mascota de escritorio para monitoreo de GitHub PRs",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/test_github.js"
+  },
+  "dependencies": {
+    "@octokit/auth-oauth-device": "^8.0.4",
+    "dotenv": "^16.4.5",
+    "octokit": "^4.0.2"
+  },
+  "devDependencies": {
+    "electron": "^31.3.0"
+  }
+}
