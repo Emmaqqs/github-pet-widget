@@ -34,11 +34,17 @@ function saveConfig(data) {
 }
 
 function createWindow() {
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const workArea = primaryDisplay.workArea || {
+        x: 0,
+        y: 0,
+        ...primaryDisplay.workAreaSize
+    };
+    const { x: workAreaX = 0, y: workAreaY = 0, width, height } = workArea;
     const config = loadConfig();
 
-    const winX = typeof config.x === 'number' ? config.x : width - 340;
-    const winY = typeof config.y === 'number' ? config.y : height - 400;
+    const winX = typeof config.x === 'number' ? config.x : workAreaX + width - 340;
+    const winY = typeof config.y === 'number' ? config.y : workAreaY + height - 400;
     alwaysOnTop = config.alwaysOnTop !== false;
 
     mainWindow = new BrowserWindow({
@@ -132,18 +138,33 @@ ipcMain.on('set-token', async (event, token) => {
 });
 
 // SA1: arrastre libre con delta de posición
-ipcMain.on('drag-start', (event, { screenX, screenY }) => {
+function getDragPoint(payload = {}) {
+    try {
+        const point = screen.getCursorScreenPoint();
+        if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) return point;
+    } catch (_) {}
+    const safePayload = payload || {};
+    const x = Number.isFinite(safePayload.x) ? safePayload.x : safePayload.screenX;
+    const y = Number.isFinite(safePayload.y) ? safePayload.y : safePayload.screenY;
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
+ipcMain.on('drag-start', (event, payload) => {
     if (!mainWindow) return;
+    dragOrigin = null;
     const [x, y] = mainWindow.getPosition();
-    dragOrigin = { screenX, screenY, x, y };
+    const point = getDragPoint(payload);
+    if (point) dragOrigin = { cursorX: point.x, cursorY: point.y, windowX: x, windowY: y };
 });
 
-ipcMain.on('drag-move', (event, { screenX, screenY }) => {
+ipcMain.on('drag-move', (event, payload) => {
     if (!mainWindow) return;
     if (!dragOrigin) return;
+    const point = getDragPoint(payload);
+    if (!point) return;
     mainWindow.setPosition(
-        Math.round(dragOrigin.x + screenX - dragOrigin.screenX),
-        Math.round(dragOrigin.y + screenY - dragOrigin.screenY)
+        Math.round(dragOrigin.windowX + point.x - dragOrigin.cursorX),
+        Math.round(dragOrigin.windowY + point.y - dragOrigin.cursorY)
     );
 });
 

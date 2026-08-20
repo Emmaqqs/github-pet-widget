@@ -35,28 +35,44 @@ function isViewed(a) {
 // La mascota completa es el área de arrastre; el encabezado ya no es un handle exclusivo.
 let isDragging = false;
 let didDrag = false;
-let dragStartX = 0;
-let dragStartY = 0;
-petContainer.addEventListener('mousedown', (e) => {
+let dragStartClientX = 0;
+let dragStartClientY = 0;
+let activePointerId = null;
+
+function endDrag() {
+    if (!isDragging) return;
+    if (activePointerId !== null && typeof petContainer.releasePointerCapture === 'function') {
+        try { petContainer.releasePointerCapture(activePointerId); } catch (_) {}
+    }
+    activePointerId = null;
+    isDragging = false;
+    ipcRenderer.send('drag-end');
+}
+
+petContainer.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
+    if (e.isPrimary === false) return;
     isDragging = true;
     didDrag = false;
-    dragStartX = e.screenX;
-    dragStartY = e.screenY;
+    activePointerId = e.pointerId ?? null;
+    dragStartClientX = e.clientX;
+    dragStartClientY = e.clientY;
     ipcRenderer.send('drag-start', { screenX: e.screenX, screenY: e.screenY });
+    if (activePointerId !== null && typeof petContainer.setPointerCapture === 'function') {
+        try { petContainer.setPointerCapture(activePointerId); } catch (_) {}
+    }
     e.preventDefault();
 });
-document.addEventListener('mousemove', (e) => {
+document.addEventListener('pointermove', (e) => {
     if (!isDragging) return;
-    const deltaX = e.screenX - dragStartX;
-    const deltaY = e.screenY - dragStartY;
+    const deltaX = e.clientX - dragStartClientX;
+    const deltaY = e.clientY - dragStartClientY;
     if (Math.abs(deltaX) + Math.abs(deltaY) > 2) didDrag = true;
     ipcRenderer.send('drag-move', { screenX: e.screenX, screenY: e.screenY });
 });
-document.addEventListener('mouseup', () => {
-    if (isDragging) ipcRenderer.send('drag-end');
-    isDragging = false;
-});
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+window.addEventListener('blur', endDrag);
 
 pet.addEventListener('click', () => {
     if (didDrag) { didDrag = false; return; }
