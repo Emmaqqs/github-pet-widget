@@ -30,6 +30,7 @@
             align-items: center;
             justify-content: center;
             cursor: move;
+            pointer-events: none;
             color: rgba(0,0,0,0.18);
             font-size: 13px;
             letter-spacing: 4px;
@@ -105,6 +106,43 @@
         }
 
         .alert-item a:hover { text-decoration: underline; }
+
+        .alert-detail {
+            color: #57606a;
+            display: block;
+            font-size: 10px;
+            margin-top: 3px;
+        }
+
+        .empty-state {
+            color: #57606a;
+            font-size: 11px;
+            padding: 8px 0;
+            text-align: center;
+        }
+        .happy-message { color: #059669; font-weight: 600; }
+
+        .alert-filters {
+            display: flex;
+            gap: 5px;
+            margin: 0 0 7px;
+        }
+        .filter-btn {
+            background: #f6f8fa;
+            border: 1px solid #d0d7de;
+            border-radius: 12px;
+            color: #57606a;
+            cursor: pointer;
+            flex: 1;
+            font-size: 10px;
+            padding: 4px 5px;
+        }
+        .filter-btn.active {
+            background: #ddf4ff;
+            border-color: #0969da;
+            color: #0969da;
+            font-weight: 600;
+        }
 
         .token-input-group {
             display: flex;
@@ -210,6 +248,11 @@
             border-color: #10b981;
             color: #10b981;
         }
+        .btn-unseen:hover {
+            background: #fff7ed;
+            border-color: #f59e0b;
+            color: #b45309;
+        }
 
         .status-badge {
             display: inline-block;
@@ -224,6 +267,8 @@
             position: relative;
             display: inline-block;
             -webkit-app-region: no-drag;
+            cursor: move;
+            padding: 2px;
         }
 
         /* Badge numérico de pendientes */
@@ -253,7 +298,7 @@
             width: 80px;
             height: 80px;
             position: relative;
-            cursor: pointer;
+            cursor: move;
             filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25));
             transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
@@ -370,6 +415,14 @@
             animation: jump-alert 0.75s cubic-bezier(0.36, 0.07, 0.19, 0.97) forwards,
                        flash-glow 0.75s ease-in-out forwards !important;
         }
+
+        @keyframes happy-hop {
+            0%, 100% { transform: translateY(0) rotate(0); }
+            25% { transform: translateY(-9px) rotate(-4deg); }
+            50% { transform: translateY(0) rotate(0); }
+            75% { transform: translateY(-6px) rotate(4deg); }
+        }
+        .anim-happy { animation: happy-hop 0.9s ease-in-out 2; }
     </style>
 </head>
 <body class="state-disconnected">
@@ -399,6 +452,11 @@
             <!-- Sección de Alertas -->
             <div id="alerts-section" style="display:none;">
                 <div id="user-header" style="font-size:11px; color:#57606a; border-bottom:1px solid #d0d7de; padding-bottom:4px; margin-bottom:6px;"></div>
+                <div class="alert-filters" role="tablist" aria-label="Filtro de alertas">
+                    <button class="filter-btn active" data-filter="active" onclick="setAlertFilter('active')">Pendientes</button>
+                    <button class="filter-btn" data-filter="viewed" onclick="setAlertFilter('viewed')">Vistos</button>
+                    <button class="filter-btn" id="refresh-btn" onclick="refreshStatus()">↻ Actualizar</button>
+                </div>
                 <div id="alerts-list">Buscando PRs...</div>
                 <div style="text-align:right; margin-top:8px;">
                     <a href="#" onclick="showSettings()" style="font-size:10px; color:#57606a; text-decoration:none;">⚙️ Cambiar Token</a>

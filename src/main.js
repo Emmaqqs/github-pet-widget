@@ -9,6 +9,7 @@ let currentToken = null;
 let pollTimer = null;
 let alwaysOnTop = true;
 let savePositionTimer = null;
+let dragOrigin = null;
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
@@ -71,6 +72,7 @@ function createWindow() {
     mainWindow.webContents.on('did-finish-load', async () => {
         const saved = loadConfig();
         mainWindow.webContents.send('always-on-top-state', alwaysOnTop);
+        mainWindow.webContents.send('seen-prs', saved.seen_prs || {});
         if (saved.token) {
             await initializeWithToken(saved.token);
         }
@@ -116,7 +118,7 @@ async function updateStatus() {
     if (!github || !mainWindow) return;
     try {
         const seenPRs = loadConfig().seen_prs || {};
-        const status = await github.getStatus(seenPRs);
+        const status = await github.getStatus(seenPRs, true);
         if (status) {
             mainWindow.webContents.send('status-update', status);
         }
@@ -130,17 +132,40 @@ ipcMain.on('set-token', async (event, token) => {
 });
 
 // SA1: arrastre libre con delta de posición
-ipcMain.on('drag-move', (event, { deltaX, deltaY }) => {
+ipcMain.on('drag-start', (event, { screenX, screenY }) => {
     if (!mainWindow) return;
     const [x, y] = mainWindow.getPosition();
-    mainWindow.setPosition(x + deltaX, y + deltaY);
+    dragOrigin = { screenX, screenY, x, y };
 });
+
+ipcMain.on('drag-move', (event, { screenX, screenY }) => {
+    if (!mainWindow) return;
+    if (!dragOrigin) return;
+    mainWindow.setPosition(
+        Math.round(dragOrigin.x + screenX - dragOrigin.screenX),
+        Math.round(dragOrigin.y + screenY - dragOrigin.screenY)
+    );
+});
+
+ipcMain.on('drag-end', () => { dragOrigin = null; });
+
+ipcMain.on('refresh-status', () => { updateStatus(); });
 
 // SA2: marcar PR como visto — solo persiste en disco; el renderer ya actualizó el DOM
 ipcMain.on('mark-seen', (event, { url, updatedAt }) => {
     const existing = loadConfig().seen_prs || {};
     saveConfig({ seen_prs: { ...existing, [url]: updatedAt } });
     // updateStatus() intencionalmente omitido: evita el lag por llamadas reales a GitHub
+});
+
+ipcMain.on('mark-unseen', (event, { url }) => {
+    const existing = loadConfig().seen_prs || {};
+    delete existing[url];
+    saveConfig({ seen_prs: existing });
+});
+
+ipcMain.on('get-seen-prs', (event) => {
+    event.reply('seen-prs', loadConfig().seen_prs || {});
 });
 
 // Historial de tokens: renderer lo solicita al abrir la pantalla de config

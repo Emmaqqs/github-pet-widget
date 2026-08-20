@@ -9,15 +9,18 @@ async function testLogic() {
             users: { getAuthenticated: async () => ({ data: { login: 'tester' } }) },
             search: { issuesAndPullRequests: async () => ({ data: { items: [
                 { number: 1, repository_url: '.../repo', title: 'Review Me', html_url: '...' },
-                { number: 2, repository_url: '.../repo', title: 'My PR', html_url: '...' }
+                { number: 2, repository_url: '.../repo', title: 'My PR', html_url: '...' },
+                { number: 3, repository_url: '.../repo', title: 'Commit After Comment', html_url: '...' }
             ] } }) },
             pulls: { 
                 get: async ({ pull_number }) => {
                     if (pull_number === 1) return { data: { user: { login: 'other' }, requested_reviewers: [{ login: 'tester' }], updated_at: '2026-08-20T00:00:00Z' } };
+                    if (pull_number === 3) return { data: { user: { login: 'other' }, requested_reviewers: [], head: { sha: 'new-sha' }, updated_at: '2026-08-20T02:00:00Z' } };
                     return { data: { user: { login: 'tester' }, requested_reviewers: [], updated_at: '2026-08-20T00:00:00Z' } };
                 },
                 listReviews: async ({ pull_number }) => {
                     if (pull_number === 2) return { data: [{ state: 'APPROVED', user: { login: 'other' } }] };
+                    if (pull_number === 3) return { data: [{ state: 'COMMENTED', user: { login: 'tester' }, submitted_at: '2026-08-20T01:00:00Z' }] };
                     return { data: [] };
                 }
             }

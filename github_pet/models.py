@@ -3,6 +3,12 @@ from datetime import datetime
 from typing import Optional
 
 
+REVIEW_REQUIRED = "REVIEW_REQUIRED"
+RE_REVIEW_NEEDED = "RE_REVIEW_NEEDED"
+MY_PR_ACTIVITY = "MY_PR_ACTIVITY"
+ALL_CAUGHT_UP = "ALL_CAUGHT_UP"
+
+
 @dataclass(frozen=True)
 class PullRequest:
     number: int
@@ -20,6 +26,13 @@ class PullRequest:
     review_comments_count: int = 0
     requested_changes: bool = False
     approvals: int = 0
+    other_approvals: int = 0
+    other_requested_changes: int = 0
+    new_issue_comments: int = 0
+    new_review_comments: int = 0
+    new_commits: bool = False
+    activity_is_new: Optional[bool] = None
+    latest_activity_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -37,11 +50,10 @@ class MonitorSnapshot:
 
     @property
     def state(self) -> str:
-        if any(a.kind == "ACTION_REQUIRED" for a in self.alerts):
-            return "ACTION_REQUIRED"
-        if any(a.kind == "RE_REVIEW" for a in self.alerts):
-            return "RE_REVIEW"
-        if any(a.kind == "REVIEW_REQUIRED" for a in self.alerts):
-            return "ALERT"
-        return "HAPPY"
-
+        if any(a.kind == MY_PR_ACTIVITY for a in self.alerts):
+            return MY_PR_ACTIVITY
+        if any(a.kind == RE_REVIEW_NEEDED for a in self.alerts):
+            return RE_REVIEW_NEEDED
+        if any(a.kind == REVIEW_REQUIRED for a in self.alerts):
+            return REVIEW_REQUIRED
+        return ALL_CAUGHT_UP

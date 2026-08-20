@@ -1,16 +1,59 @@
 let OctokitModule;
 
+const API_VERSION = '2022-11-28';
+
+function toDate(value) {
+    if (!value) return new Date(0);
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? new Date(0) : date;
+}
+
+function loginOf(user) {
+    if (!user) return null;
+    return user.login || user.name || null;
+}
+
+function activityDate(activity) {
+    if (!activity) return new Date(0);
+    return toDate(activity.submitted_at || activity.created_at || activity.updated_at);
+}
+
+function isSameUser(user, username) {
+    const login = loginOf(user);
+    if (!login || !username) return false;
+    return login.toLowerCase() === username.toLowerCase();
+}
+
+function isSeen(seenPRs, url, activityAt) {
+    if (!seenPRs || !url) return false;
+    const marker = seenPRs[url];
+    if (!marker) return false;
+
+    if (typeof marker === 'string') {
+        return toDate(activityAt).getTime() <= toDate(marker).getTime();
+    }
+    if (marker.seenAt) {
+        return toDate(activityAt).getTime() <= toDate(marker.seenAt).getTime();
+    }
+    return false;
+}
+
+function sortNewestFirst(events) {
+    return events.sort((a, b) => b.date.getTime() - a.date.getTime());
+}
+
 class GitHubService {
     constructor(token) {
         this.token = token;
         this.octokit = null;
         this.username = null;
+        this.lastRateLimit = null;
     }
 
     async getOctokit() {
         if (!this.octokit) {
             if (!OctokitModule) {
-                const mod = await import("octokit");
+                const mod = await import('octokit');
                 OctokitModule = mod.Octokit;
             }
             this.octokit = new OctokitModule({ auth: this.token });
@@ -25,17 +68,55 @@ class GitHubService {
             this.username = user.login;
             return user;
         } catch (error) {
-            console.error("Auth verification error:", error.status || error.message);
+            console.error('Auth verification error:', error.status || error.message);
             return null;
         }
     }
 
-    async getStatus(seenPRs = {}) {
-        function isSeen(url, updatedAt) {
-            if (!seenPRs[url]) return false;
-            return new Date(updatedAt) <= new Date(seenPRs[url]);
+    rememberRateLimit(response) {
+        const headers = response?.headers || {};
+        if (headers['x-ratelimit-remaining'] !== undefined) {
+            this.lastRateLimit = {
+                remaining: Number(headers['x-ratelimit-remaining']),
+                resetAt: headers['x-ratelimit-reset']
+                    ? new Date(Number(headers['x-ratelimit-reset']) * 1000).toISOString()
+                    : null,
+            };
         }
+    }
 
+    async safeFetch(fn, params) {
+        try {
+            if (typeof fn !== 'function') return [];
+            const response = await fn({ ...params, per_page: 100 });
+            this.rememberRateLimit(response);
+            return Array.isArray(response?.data) ? response.data : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    async searchPullRequests(username) {
+        const octokit = await this.getOctokit();
+        const params = {
+            q: `is:pr is:open involves:${username}`,
+            per_page: 100,
+            headers: { 'X-GitHub-Api-Version': API_VERSION },
+        };
+        if (typeof octokit.request === 'function') {
+            const response = await octokit.request('GET /search/issues', params);
+            this.rememberRateLimit(response);
+            return response.data?.items || [];
+        }
+        if (octokit.rest?.search?.issuesAndPullRequests) {
+            const response = await octokit.rest.search.issuesAndPullRequests(params);
+            this.rememberRateLimit(response);
+            return response.data?.items || [];
+        }
+        return [];
+    }
+
+    async getStatus(seenPRs = {}, includeSeen = false) {
         try {
             const octokit = await this.getOctokit();
             if (!this.username) {
@@ -44,193 +125,170 @@ class GitHubService {
             }
 
             const username = this.username;
-
-            // Búsqueda de PRs abiertos involucrados usando el endpoint oficial GET /search/issues
-            let searchResults;
-            if (typeof octokit.request === 'function') {
-                const res = await octokit.request('GET /search/issues', {
-                    q: `is:pr is:open involves:${username}`,
-                    per_page: 50,
-                    headers: { 'X-GitHub-Api-Version': '2022-11-28' }
-                });
-                searchResults = res.data;
-            } else if (octokit.rest && octokit.rest.search) {
-                const res = await octokit.rest.search.issuesAndPullRequests({
-                    q: `is:pr is:open involves:${username}`,
-                });
-                searchResults = res.data;
-            } else {
-                searchResults = { items: [] };
-            }
-
             const alerts = {
-                review_required: [], // Caso A
-                re_review_needed: [], // Caso B
-                my_pr_activity: [],  // Caso C
+                review_required: [],
+                re_review_needed: [],
+                my_pr_activity: [],
+                meta: { rateLimit: this.lastRateLimit, generatedAt: new Date().toISOString() },
             };
+            const items = await this.searchPullRequests(username);
 
-            for (const item of (searchResults.items || [])) {
-                const parts = item.repository_url.split("/");
-                const owner = parts[parts.length - 2];
-                const repo = parts[parts.length - 1];
-                const pr_number = item.number;
+            for (const item of items) {
+                const parts = String(item.repository_url || '').split('/').filter(Boolean);
+                const repo = parts.pop();
+                const owner = parts.pop();
+                if (!owner || !repo || !item.number) continue;
 
-                // 1. Obtener detalles del PR
-                const { data: pr } = await octokit.rest.pulls.get({
-                    owner,
-                    repo,
-                    pull_number: pr_number,
-                });
-
-                // 2. Obtener reviews formales
-                const { data: reviews } = await octokit.rest.pulls.listReviews({
-                    owner,
-                    repo,
-                    pull_number: pr_number,
-                });
-
-                // 3. Obtener comentarios inline en el código (review comments)
-                let reviewComments = [];
+                let pr;
                 try {
-                    const { data: rc } = await octokit.rest.pulls.listReviewComments({
+                    const pullResponse = await octokit.rest.pulls.get({
                         owner,
                         repo,
-                        pull_number: pr_number,
+                        pull_number: item.number,
+                        headers: { 'X-GitHub-Api-Version': API_VERSION },
                     });
-                    reviewComments = rc || [];
-                } catch (_) {}
-
-                // 4. Obtener comentarios generales de discusión (issue comments)
-                let issueComments = [];
-                try {
-                    const { data: ic } = await octokit.rest.issues.listComments({
-                        owner,
-                        repo,
-                        issue_number: pr_number,
-                    });
-                    issueComments = ic || [];
-                } catch (_) {}
-
-                // Recopilar toda la actividad cronológica
-                const myActivities = [];
-                const othersActivities = [];
-
-                // Analizar reviews formales
-                for (const r of (reviews || [])) {
-                    const date = new Date(r.submitted_at || r.created_at);
-                    if (r.user && r.user.login === username) {
-                        myActivities.push({ type: 'review', state: r.state, date });
-                    } else if (r.user) {
-                        othersActivities.push({ user: r.user.login, type: 'review', state: r.state, date });
-                    }
+                    this.rememberRateLimit(pullResponse);
+                    pr = pullResponse.data;
+                } catch (e) {
+                    console.error(`Error fetching PR #${item.number}:`, e.message);
+                    continue;
                 }
 
-                // Analizar comentarios de código
-                for (const c of reviewComments) {
-                    const date = new Date(c.created_at);
-                    if (c.user && c.user.login === username) {
-                        myActivities.push({ type: 'comment', date });
-                    } else if (c.user) {
-                        othersActivities.push({ user: c.user.login, type: 'comment', date, body: c.body });
+                const base = { owner, repo, pull_number: item.number };
+
+                const [reviews, reviewComments, issueComments] = await Promise.all([
+                    this.safeFetch(octokit.rest.pulls.listReviews ? octokit.rest.pulls.listReviews.bind(octokit.rest.pulls) : null, base),
+                    this.safeFetch(octokit.rest.pulls.listReviewComments ? octokit.rest.pulls.listReviewComments.bind(octokit.rest.pulls) : null, base),
+                    this.safeFetch(octokit.rest.issues?.listComments ? octokit.rest.issues.listComments.bind(octokit.rest.issues) : null, {
+                        owner, repo, issue_number: item.number,
+                    }),
+                ]);
+
+                const events = [];
+                for (const review of reviews) {
+                    if (review && review.state && review.state !== 'PENDING') {
+                        events.push({
+                            type: 'review',
+                            state: review.state,
+                            user: loginOf(review.user) || 'reviewer',
+                            date: activityDate(review),
+                            created_at: review.submitted_at || review.created_at,
+                            id: review.id,
+                            body: review.body || '',
+                            headSha: review.commit_id || null,
+                        });
                     }
                 }
-
-                // Analizar comentarios de discusión
-                for (const c of issueComments) {
-                    const date = new Date(c.created_at);
-                    if (c.user && c.user.login === username) {
-                        myActivities.push({ type: 'comment', date });
-                    } else if (c.user) {
-                        othersActivities.push({ user: c.user.login, type: 'comment', date, body: c.body });
+                for (const comment of reviewComments) {
+                    if (comment) {
+                        events.push({
+                            type: 'inline_comment',
+                            user: loginOf(comment.user) || 'reviewer',
+                            date: activityDate(comment),
+                            created_at: comment.created_at,
+                            id: comment.id,
+                            body: comment.body || '',
+                            headSha: comment.commit_id || null,
+                        });
                     }
                 }
-
-                // Ordenar actividades por fecha más reciente
-                myActivities.sort((a, b) => b.date - a.date);
-                othersActivities.sort((a, b) => b.date - a.date);
-
-                const lastMyActivity = myActivities[0] || null;
-                const lastOtherActivity = othersActivities[0] || null;
-                const prUpdatedAt = new Date(pr.updated_at);
-
-                // ============================================================
-                // CASO C: Mi propio PR (donde yo soy el autor)
-                // ============================================================
-                if (pr.user.login === username) {
-                    const lastReview = (reviews || []).filter(r => r.user && r.user.login !== username).pop();
-                    if (lastReview && lastReview.state === "CHANGES_REQUESTED") {
-                        if (!isSeen(pr.html_url, pr.updated_at)) {
-                            alerts.my_pr_activity.push({
-                                title: pr.title,
-                                url: pr.html_url,
-                                updated_at: pr.updated_at,
-                                state: `Cambios solicitados por @${lastReview.user?.login || 'reviewer'} ⚠️`
-                            });
-                        }
-                    } else if (lastReview && lastReview.state === "APPROVED") {
-                        if (!isSeen(pr.html_url, pr.updated_at)) {
-                            alerts.my_pr_activity.push({
-                                title: pr.title,
-                                url: pr.html_url,
-                                updated_at: pr.updated_at,
-                                state: `Aprobado por @${lastReview.user?.login || 'reviewer'} ✅`
-                            });
-                        }
-                    } else if (lastOtherActivity && (!lastMyActivity || lastOtherActivity.date > lastMyActivity.date)) {
-                        if (!isSeen(pr.html_url, pr.updated_at)) {
-                            alerts.my_pr_activity.push({
-                                title: pr.title,
-                                url: pr.html_url,
-                                updated_at: pr.updated_at,
-                                state: `Nuevo comentario de @${lastOtherActivity.user} 💬`
-                            });
-                        }
+                for (const comment of issueComments) {
+                    if (comment) {
+                        events.push({
+                            type: 'issue_comment',
+                            user: loginOf(comment.user) || 'usuario',
+                            date: activityDate(comment),
+                            created_at: comment.created_at,
+                            id: comment.id,
+                            body: comment.body || '',
+                            headSha: null,
+                        });
                     }
-                } else {
-                    // ============================================================
-                    // CASOS A y B: PRs de otros donde participo o me asignaron
-                    // ============================================================
-                    const isRequested = (pr.requested_reviewers || []).some(r => r.login === username);
+                }
+                sortNewestFirst(events);
 
-                    if (isRequested && !lastMyActivity) {
-                        // CASO A: Me asignaron y no he dejado ninguna review ni comentario
-                        if (!isSeen(pr.html_url, pr.updated_at)) {
-                            alerts.review_required.push({
-                                title: pr.title,
-                                url: pr.html_url,
-                                updated_at: pr.updated_at,
-                                state: `Revisión pendiente (Asignado)`
-                            });
-                        }
-                    } else if (lastMyActivity) {
-                        // CASO B: Ya revisé o comenté previamente
-                        const hasNewCommits = prUpdatedAt > lastMyActivity.date;
-                        const hasNewReplies = lastOtherActivity && lastOtherActivity.date > lastMyActivity.date;
+                const mine = sortNewestFirst(events.filter(e => isSameUser({ login: e.user }, username)));
+                const others = sortNewestFirst(events.filter(e => !isSameUser({ login: e.user }, username)));
+                const latestMine = mine[0] || null;
+                const latestOther = others[0] || null;
+                const headSha = pr.head?.sha || null;
+                const latestActivityAt = events[0]?.date || toDate(pr.updated_at);
+                const seen = isSeen(seenPRs, pr.html_url || item.html_url, latestActivityAt);
 
-                        if (hasNewCommits || hasNewReplies) {
-                            let detail = "Nuevos commits 🔄";
-                            if (hasNewReplies && !hasNewCommits) {
-                                detail = `Respuesta de @${lastOtherActivity.user} 💬`;
-                            } else if (hasNewReplies && hasNewCommits) {
-                                detail = `Commits y respuesta de @${lastOtherActivity.user} 🔄`;
-                            }
+                const common = {
+                    title: pr.title || item.title || `PR #${item.number}`,
+                    url: pr.html_url || item.html_url,
+                    updated_at: pr.updated_at,
+                    head_sha: headSha,
+                    number: item.number,
+                    repository: `${owner}/${repo}`,
+                    author: loginOf(pr.user) || username,
+                    latest_activity_at: latestActivityAt.toISOString(),
+                };
 
-                            if (!isSeen(pr.html_url, pr.updated_at)) {
-                                alerts.re_review_needed.push({
-                                    title: pr.title,
-                                    url: pr.html_url,
-                                    updated_at: pr.updated_at,
-                                    state: detail
-                                });
-                            }
-                        }
+                // CASO C: Mi propio PR
+                if (isSameUser(pr.user, username)) {
+                    const otherFormal = others.find(e => e.type === 'review' && ['CHANGES_REQUESTED', 'APPROVED'].includes(e.state));
+                    const newOther = latestOther && (!latestMine || latestOther.date > latestMine.date);
+                    
+                    let detail = null;
+                    if (otherFormal?.state === 'CHANGES_REQUESTED') {
+                        detail = `Cambios pedidos por @${otherFormal.user} ⚠️`;
+                    } else if (otherFormal?.state === 'APPROVED') {
+                        detail = `Aprobado por @${otherFormal.user} ✅`;
+                    } else if (newOther) {
+                        detail = `Comentario de @${latestOther.user} 💬`;
+                    } else if (others.length > 0) {
+                        detail = `Actividad reciente en tu PR 💬`;
+                    } else {
+                        detail = `Abierto y esperando revisión ⏳`;
+                    }
+
+                    if (includeSeen || !seen) {
+                        alerts.my_pr_activity.push({
+                            ...common,
+                            state: detail,
+                        });
+                    }
+                    continue;
+                }
+
+                // CASOS A y B: PRs de otros
+                const requested = (pr.requested_reviewers || []).some(r => isSameUser(r, username));
+                if (requested && !latestMine) {
+                    if (includeSeen || !seen) {
+                        alerts.review_required.push({
+                            ...common,
+                            state: 'Revisión Requerida: Asignado ⏳',
+                        });
+                    }
+                    continue;
+                }
+
+                if (latestMine) {
+                    const newCommits = Boolean(headSha && latestMine.headSha && headSha !== latestMine.headSha)
+                        || Boolean(toDate(pr.updated_at) > latestMine.date);
+                    const newOtherActivity = latestOther && latestOther.date > latestMine.date;
+
+                    if ((newCommits || newOtherActivity) && (includeSeen || !seen)) {
+                        let detail = 'Commits nuevos 🔄';
+                        if (newOtherActivity && !newCommits) detail = `Respuesta de @${latestOther.user} 💬`;
+                        if (newOtherActivity && newCommits) detail = `Commits o respuesta de @${latestOther.user} 💬`;
+                        alerts.re_review_needed.push({
+                            ...common,
+                            state: `Re-revisión Pendiente: ${detail}`,
+                        });
                     }
                 }
             }
 
+            for (const key of ['review_required', 're_review_needed', 'my_pr_activity']) {
+                alerts[key].sort((a, b) => toDate(b.latest_activity_at || b.updated_at) - toDate(a.latest_activity_at || a.updated_at));
+            }
+            alerts.meta.rateLimit = this.lastRateLimit;
             return alerts;
         } catch (error) {
-            console.error("Error fetching GitHub PR status:", error.message);
+            console.error('Error fetching GitHub PR status:', error.message);
             return null;
         }
     }
