@@ -3,6 +3,7 @@ const { ipcRenderer, shell } = require('electron');
 const bubble = document.getElementById('bubble');
 const alertsSection = document.getElementById('alerts-section');
 const logsSection = document.getElementById('logs-section');
+const watchedSection = document.getElementById('watched-section');
 const aiSettingsSection = document.getElementById('ai-settings-section');
 const authSection = document.getElementById('auth-section');
 
@@ -24,6 +25,10 @@ const chkRecentOnly = document.getElementById('chk-recent-only');
 const chkShowWaiting = document.getElementById('chk-show-waiting');
 const chkShowViewed = document.getElementById('chk-show-viewed');
 
+const selWatchedRepo = document.getElementById('sel-watched-repo');
+const inputWatchedUser = document.getElementById('input-watched-user');
+const watchedDevsChips = document.getElementById('watched-devs-chips');
+
 let isBubbleVisible = true;
 let prevTotalAlerts = -1;
 let currentCategoryFilter = 'all';
@@ -31,6 +36,8 @@ let daysThreshold = 7;
 const alertStore = new Map();
 const viewedAt = new Map();
 let actionLogs = [];
+let watchedDevsMap = {};
+let accessibleRepos = [];
 let toastTimer = null;
 
 function showToast(text, isError = false) {
@@ -134,7 +141,7 @@ function openURL(url) { shell.openExternal(url); }
 window.openURL = openURL;
 
 // =========================================================================
-// FILTROS AVANZADOS (CATEGORÍAS, 7 DÍAS, EN ESPERA, VISTOS)
+// FILTROS AVANZADOS (CATEGORÍAS, MONITOREADOS, 7 DÍAS, EN ESPERA, VISTOS)
 // =========================================================================
 
 function setCategoryFilter(filter) {
@@ -154,6 +161,89 @@ window.toggleShowWaiting = toggleShowWaiting;
 
 function toggleShowViewed() { renderAlerts(); }
 window.toggleShowViewed = toggleShowViewed;
+
+// =========================================================================
+// GESTIÓN DE COMPAÑEROS MONITOREADOS POR REPOSITORIO
+// =========================================================================
+
+function showWatchedDevsView() {
+    alertsSection.style.display = 'none';
+    logsSection.style.display = 'none';
+    aiSettingsSection.style.display = 'none';
+    authSection.style.display = 'none';
+    watchedSection.style.display = 'flex';
+    ipcRenderer.send('get-accessible-repos');
+    ipcRenderer.send('get-watched-devs');
+}
+window.showWatchedDevsView = showWatchedDevsView;
+
+ipcRenderer.on('accessible-repos-data', (event, repos) => {
+    accessibleRepos = repos || [];
+    selWatchedRepo.replaceChildren();
+    if (accessibleRepos.length === 0) {
+        selWatchedRepo.innerHTML = '<option value="">No se encontraron repositorios</option>';
+        return;
+    }
+    accessibleRepos.forEach(r => {
+        const opt = document.createElement('option');
+        opt.value = r.name;
+        opt.textContent = r.name + (r.isPrivate ? ' 🔒' : '');
+        selWatchedRepo.appendChild(opt);
+    });
+    renderWatchedChips();
+});
+
+ipcRenderer.on('watched-devs-data', (event, data) => {
+    watchedDevsMap = data || {};
+    renderWatchedChips();
+});
+
+function onWatchedRepoChange() {
+    renderWatchedChips();
+}
+window.onWatchedRepoChange = onWatchedRepoChange;
+
+function renderWatchedChips() {
+    const repo = selWatchedRepo.value;
+    watchedDevsChips.replaceChildren();
+    const devs = (watchedDevsMap[repo] || []);
+    if (devs.length === 0) {
+        watchedDevsChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Ningún desarrollador agregado aún en este repo.</span>';
+        return;
+    }
+    devs.forEach(username => {
+        const chip = document.createElement('span');
+        chip.className = 'tag-badge tag-monitored';
+        chip.style.fontSize = '10px';
+        chip.style.padding = '2px 6px';
+        chip.innerHTML = `@${escapeHtml(username)} <button style="background:none; border:none; color:#0e7490; cursor:pointer; font-weight:700; margin-left:3px;" onclick="removeWatchedDev('${escapeHtml(username)}')">✕</button>`;
+        watchedDevsChips.appendChild(chip);
+    });
+}
+
+function addWatchedDev() {
+    const repo = selWatchedRepo.value;
+    const user = inputWatchedUser.value.trim().replace(/^@/, '');
+    if (!repo || !user) return;
+    if (!watchedDevsMap[repo]) watchedDevsMap[repo] = [];
+    if (!watchedDevsMap[repo].includes(user)) {
+        watchedDevsMap[repo].push(user);
+        ipcRenderer.send('save-watched-devs', watchedDevsMap);
+        showToast(`🎯 Monitoreando a @${user} en ${repo}`);
+    }
+    inputWatchedUser.value = '';
+    renderWatchedChips();
+}
+window.addWatchedDev = addWatchedDev;
+
+function removeWatchedDev(user) {
+    const repo = selWatchedRepo.value;
+    if (!repo || !watchedDevsMap[repo]) return;
+    watchedDevsMap[repo] = watchedDevsMap[repo].filter(u => u !== user);
+    ipcRenderer.send('save-watched-devs', watchedDevsMap);
+    renderWatchedChips();
+}
+window.removeWatchedDev = removeWatchedDev;
 
 // =========================================================================
 // ACCIONES 1-CLICK AUTÓNOMAS CON OPENAI LUNA Y WORKTREES
@@ -212,7 +302,6 @@ function createAlertCard(a, viewed) {
     card.className = 'alert-card';
     card.dataset.url = alertKey(a);
 
-    // Fila Superior (Repo y Tiempo)
     const topRow = document.createElement('div');
     topRow.className = 'card-top';
 
@@ -228,7 +317,6 @@ function createAlertCard(a, viewed) {
     topRow.append(repoBadge, timeBadge);
     card.appendChild(topRow);
 
-    // Título Clickable
     const titleLink = document.createElement('a');
     titleLink.className = 'card-title';
     titleLink.href = '#';
@@ -237,11 +325,17 @@ function createAlertCard(a, viewed) {
     titleLink.addEventListener('click', (e) => { e.preventDefault(); openURL(a.url); });
     card.appendChild(titleLink);
 
-    // Fila de Etiquetas Múltiples (Multi-Tags)
+    // Fila de Etiquetas Múltiples
     const tagsRow = document.createElement('div');
     tagsRow.className = 'card-tags';
     const tags = a.tags || [];
 
+    if (tags.includes('monitored')) {
+        const t = document.createElement('span');
+        t.className = 'tag-badge tag-monitored';
+        t.innerHTML = `🎯 @${escapeHtml(a.author)}`;
+        tagsRow.appendChild(t);
+    }
     if (tags.includes('conflict')) {
         const t = document.createElement('span');
         t.className = 'tag-badge tag-conflict';
@@ -257,7 +351,7 @@ function createAlertCard(a, viewed) {
     if (tags.includes('feedback')) {
         const t = document.createElement('span');
         t.className = 'tag-badge tag-feedback';
-        t.innerHTML = '💬 Feedback pendiente';
+        t.innerHTML = '💬 Feedback';
         tagsRow.appendChild(t);
     }
     if (tags.includes('waiting')) {
@@ -266,7 +360,7 @@ function createAlertCard(a, viewed) {
         t.innerHTML = '⏳ En espera';
         tagsRow.appendChild(t);
     }
-    if (tags.includes('review')) {
+    if (tags.includes('review') && !tags.includes('monitored')) {
         const t = document.createElement('span');
         t.className = 'tag-badge tag-review';
         t.innerHTML = '⏳ Revisión pedida';
@@ -276,7 +370,6 @@ function createAlertCard(a, viewed) {
         card.appendChild(tagsRow);
     }
 
-    // Estado / Detalle
     if (a.state) {
         const stateEl = document.createElement('div');
         stateEl.className = 'card-state';
@@ -284,7 +377,6 @@ function createAlertCard(a, viewed) {
         card.appendChild(stateEl);
     }
 
-    // Historial desplegable por PR
     const historyBox = document.createElement('div');
     historyBox.className = 'pr-history-box';
     const timeline = a.historyTimeline || [];
@@ -302,7 +394,6 @@ function createAlertCard(a, viewed) {
     }
     card.appendChild(historyBox);
 
-    // Acciones y Botón de Historial
     const actions = document.createElement('div');
     actions.className = 'card-actions';
 
@@ -322,7 +413,7 @@ function createAlertCard(a, viewed) {
         actions.appendChild(btn);
     }
 
-    if (tags.includes('review')) {
+    if (tags.includes('review') || tags.includes('monitored')) {
         const btn = document.createElement('button');
         btn.className = 'btn-action-ai';
         btn.innerHTML = '<span>🤖</span> Revisar & Publicar';
@@ -359,29 +450,26 @@ function renderAlerts() {
 
     let items = [...alertStore.values()];
 
-    // 1. Filtro de Vistos
     items = items.filter(a => showViewed ? isViewed(a) : !isViewed(a));
 
-    // 2. Filtro de 7 Días
     if (recentOnly) {
         items = items.filter(a => (a.days_ago || 0) <= daysThreshold);
     }
 
-    // 3. Filtro de "En Espera"
-    if (!showWaiting && currentCategoryFilter !== 'all' && currentCategoryFilter !== 'resolved') {
+    if (!showWaiting && currentCategoryFilter !== 'all' && currentCategoryFilter !== 'resolved' && currentCategoryFilter !== 'monitored') {
         items = items.filter(a => !a.is_waiting_only);
     } else if (!showWaiting && currentCategoryFilter === 'all') {
-        // En "Todos", muestra todo lo que tenga acción o esté resuelto
-        items = items.filter(a => !a.is_waiting_only || a.has_conflict || (a.tags && a.tags.includes('resolved')));
+        items = items.filter(a => !a.is_waiting_only || a.has_conflict || (a.tags && a.tags.includes('resolved')) || (a.tags && a.tags.includes('monitored')));
     }
 
-    // 4. Filtro por Categoría con Multi-Tags
-    if (currentCategoryFilter === 'conflict') {
+    if (currentCategoryFilter === 'monitored') {
+        items = items.filter(a => a.tags && a.tags.includes('monitored'));
+    } else if (currentCategoryFilter === 'conflict') {
         items = items.filter(a => a.tags && a.tags.includes('conflict'));
     } else if (currentCategoryFilter === 'feedback') {
         items = items.filter(a => a.tags && a.tags.includes('feedback'));
     } else if (currentCategoryFilter === 'review') {
-        items = items.filter(a => a.tags && a.tags.includes('review'));
+        items = items.filter(a => a.tags && (a.tags.includes('review') || a.tags.includes('monitored')));
     } else if (currentCategoryFilter === 'resolved') {
         items = items.filter(a => a.tags && a.tags.includes('resolved'));
     }
@@ -397,7 +485,7 @@ function renderAlerts() {
     const actionableCount = [...alertStore.values()].filter(a => 
         !isViewed(a) && 
         !(a.tags && a.tags.includes('resolved')) && 
-        !a.is_waiting_only
+        (!a.is_waiting_only || (a.tags && a.tags.includes('monitored')))
     ).length;
     updateBadge(actionableCount);
 }
@@ -418,6 +506,7 @@ window.refreshStatus = refreshStatus;
 
 function showActionLogs() {
     alertsSection.style.display = 'none';
+    watchedSection.style.display = 'none';
     aiSettingsSection.style.display = 'none';
     authSection.style.display = 'none';
     logsSection.style.display = 'flex';
@@ -462,6 +551,7 @@ ipcRenderer.on('action-logs-data', (event, logs) => renderLogs(logs));
 
 function showAlertsView() {
     logsSection.style.display = 'none';
+    watchedSection.style.display = 'none';
     aiSettingsSection.style.display = 'none';
     authSection.style.display = 'none';
     alertsSection.style.display = 'flex';
@@ -471,6 +561,7 @@ window.showAlertsView = showAlertsView;
 function showAISettings() {
     alertsSection.style.display = 'none';
     logsSection.style.display = 'none';
+    watchedSection.style.display = 'none';
     authSection.style.display = 'none';
     aiSettingsSection.style.display = 'flex';
     ipcRenderer.send('get-ai-templates');
@@ -480,6 +571,7 @@ window.showAISettings = showAISettings;
 function showSettings() {
     alertsSection.style.display = 'none';
     logsSection.style.display = 'none';
+    watchedSection.style.display = 'none';
     aiSettingsSection.style.display = 'none';
     authSection.style.display = 'flex';
     authErrorMsg.style.display = 'none';
@@ -585,10 +677,11 @@ ipcRenderer.on('status-update', (event, alerts) => {
     });
     incoming.forEach(a => alertStore.set(alertKey(a), a));
 
-    const active = incoming.filter(a => !isViewed(a) && !(a.tags && a.tags.includes('resolved')) && !a.is_waiting_only);
+    const active = incoming.filter(a => !isViewed(a) && !(a.tags && a.tags.includes('resolved')) && (!a.is_waiting_only || (a.tags && a.tags.includes('monitored'))));
     const priority = active.some(a => a.tags && a.tags.includes('conflict')) ? 'state-conflict'
+        : active.some(a => a.tags && a.tags.includes('monitored')) ? 'state-alert'
         : active.some(a => a.tags && a.tags.includes('feedback')) ? 'state-action'
-        : active.some(a => a.tags && a.tags.includes('review')) ? 'state-alert' : 'state-happy';
+        : active.some(a => a.tags && a.tags.includes('review')) ? 'state-rereview' : 'state-happy';
     body.className = priority;
     renderAlerts();
     if (prevTotalAlerts >= 0 && active.length > prevTotalAlerts) triggerAlertAnimation();

@@ -96,6 +96,26 @@ class GitHubService {
         }
     }
 
+    async getAccessibleRepositories() {
+        try {
+            const octokit = await this.getOctokit();
+            const response = await octokit.request('GET /user/repos', {
+                sort: 'updated',
+                per_page: 50,
+                headers: { 'X-GitHub-Api-Version': API_VERSION }
+            });
+            this.rememberRateLimit(response);
+            return (response.data || []).map(r => ({
+                name: r.full_name,
+                owner: r.owner?.login,
+                isPrivate: r.private
+            }));
+        } catch (error) {
+            console.error('Error fetching accessible repos:', error.message);
+            return [];
+        }
+    }
+
     async searchPullRequests(username) {
         const octokit = await this.getOctokit();
         const params = {
@@ -173,7 +193,7 @@ class GitHubService {
         }
     }
 
-    async getStatus(seenPRs = {}, includeSeen = false, resolvedPRs = {}) {
+    async getStatus(seenPRs = {}, includeSeen = false, resolvedPRs = {}, watchedDevs = {}) {
         try {
             const octokit = await this.getOctokit();
             if (!this.username) {
@@ -188,6 +208,7 @@ class GitHubService {
                 review_required: [],
                 re_review_needed: [],
                 my_pr_activity: [],
+                monitored_prs: [],
                 resolved: [],
                 meta: { rateLimit: this.lastRateLimit, generatedAt: new Date().toISOString() },
             };
@@ -216,6 +237,7 @@ class GitHubService {
                 }
 
                 const base = { owner, repo, pull_number: item.number };
+                const repoFullName = `${owner}/${repo}`;
 
                 const [reviews, reviewComments, issueComments] = await Promise.all([
                     this.safeFetch(octokit.rest.pulls.listReviews ? octokit.rest.pulls.listReviews.bind(octokit.rest.pulls) : null, base),
@@ -277,6 +299,7 @@ class GitHubService {
                 const seen = isSeen(seenPRs, pr.html_url || item.html_url, latestActivityAt);
                 const daysAgo = Math.floor((now - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24));
                 const url = pr.html_url || item.html_url;
+                const authorLogin = loginOf(pr.user) || username;
 
                 const historyTimeline = events.slice(0, 8).map(ev => ({
                     user: ev.user,
@@ -293,6 +316,11 @@ class GitHubService {
                 if (isResolved) tags.push('resolved');
                 if (pr.mergeable === false || pr.mergeable_state === 'dirty') tags.push('conflict');
                 if (isSameUser(pr.user, username)) tags.push('my_pr');
+
+                // Verificación de desarrollador monitoreado por repositorio
+                const watchedForRepo = (watchedDevs[repoFullName] || []).map(u => u.toLowerCase());
+                const isMonitoredAuthor = !isSameUser(pr.user, username) && watchedForRepo.includes(authorLogin.toLowerCase());
+                if (isMonitoredAuthor) tags.push('monitored');
 
                 let detail = 'Abierto';
                 let requiresFix = false;
@@ -341,8 +369,8 @@ class GitHubService {
                         head_branch: pr.head?.ref || 'dev',
                         base_branch: pr.base?.ref || 'main',
                         number: item.number,
-                        repository: `${owner}/${repo}`,
-                        author: loginOf(pr.user) || username,
+                        repository: repoFullName,
+                        author: authorLogin,
                         latest_activity_at: latestActivityAt.toISOString(),
                         days_ago: Math.max(0, daysAgo),
                         has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
@@ -365,73 +393,51 @@ class GitHubService {
 
                 // PRs de otros
                 const requested = (pr.requested_reviewers || []).some(r => isSameUser(r, username));
-                if (requested && !latestMine) {
+                if (isMonitoredAuthor) {
+                    detail = `🎯 Monitoreado: PR de @${authorLogin}`;
+                } else if (requested && !latestMine) {
                     detail = 'Revisión Requerida: Asignado ⏳';
                     tags.push('review');
-                    const prData = {
-                        title: pr.title || item.title || `PR #${item.number}`,
-                        url,
-                        updated_at: pr.updated_at,
-                        head_sha: headSha,
-                        head_branch: pr.head?.ref || 'dev',
-                        base_branch: pr.base?.ref || 'main',
-                        number: item.number,
-                        repository: `${owner}/${repo}`,
-                        author: loginOf(pr.user) || username,
-                        latest_activity_at: latestActivityAt.toISOString(),
-                        days_ago: Math.max(0, daysAgo),
-                        has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
-                        state: detail,
-                        requires_fix: false,
-                        is_waiting_only: false,
-                        tags,
-                        historyTimeline,
-                        resolved_info: resolvedRecord || null
-                    };
-                    if (includeSeen || !seen) {
-                        alerts.review_required.push(prData);
-                        alerts.all_prs.push(prData);
-                        if (tags.includes('conflict')) alerts.merge_conflicts.push(prData);
-                        if (tags.includes('resolved')) alerts.resolved.push(prData);
-                    }
-                    continue;
-                }
-
-                if (latestMine) {
+                } else if (latestMine) {
                     const newCommits = Boolean(headSha && latestMine.headSha && headSha !== latestMine.headSha)
                         || Boolean(toDate(pr.updated_at) > latestMine.date);
                     const newOtherActivity = latestOther && latestOther.date > latestMine.date;
-
                     if (newCommits || newOtherActivity) {
                         detail = 'Re-revisión Pendiente 🔄';
                         tags.push('re_review');
-                        const prData = {
-                            title: pr.title || item.title || `PR #${item.number}`,
-                            url,
-                            updated_at: pr.updated_at,
-                            head_sha: headSha,
-                            head_branch: pr.head?.ref || 'dev',
-                            base_branch: pr.base?.ref || 'main',
-                            number: item.number,
-                            repository: `${owner}/${repo}`,
-                            author: loginOf(pr.user) || username,
-                            latest_activity_at: latestActivityAt.toISOString(),
-                            days_ago: Math.max(0, daysAgo),
-                            has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
-                            state: detail,
-                            requires_fix: false,
-                            is_waiting_only: false,
-                            tags,
-                            historyTimeline,
-                            resolved_info: resolvedRecord || null
-                        };
-                        if (includeSeen || !seen) {
-                            alerts.re_review_needed.push(prData);
-                            alerts.all_prs.push(prData);
-                            if (tags.includes('conflict')) alerts.merge_conflicts.push(prData);
-                            if (tags.includes('resolved')) alerts.resolved.push(prData);
-                        }
                     }
+                } else {
+                    tags.push('review');
+                }
+
+                const prData = {
+                    title: pr.title || item.title || `PR #${item.number}`,
+                    url,
+                    updated_at: pr.updated_at,
+                    head_sha: headSha,
+                    head_branch: pr.head?.ref || 'dev',
+                    base_branch: pr.base?.ref || 'main',
+                    number: item.number,
+                    repository: repoFullName,
+                    author: authorLogin,
+                    latest_activity_at: latestActivityAt.toISOString(),
+                    days_ago: Math.max(0, daysAgo),
+                    has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
+                    state: detail,
+                    requires_fix: false,
+                    is_waiting_only: false,
+                    tags,
+                    historyTimeline,
+                    resolved_info: resolvedRecord || null
+                };
+
+                if (includeSeen || !seen) {
+                    alerts.all_prs.push(prData);
+                    if (isMonitoredAuthor) alerts.monitored_prs.push(prData);
+                    if (tags.includes('review') || isMonitoredAuthor) alerts.review_required.push(prData);
+                    if (tags.includes('re_review')) alerts.re_review_needed.push(prData);
+                    if (tags.includes('conflict')) alerts.merge_conflicts.push(prData);
+                    if (tags.includes('resolved')) alerts.resolved.push(prData);
                 }
             }
 

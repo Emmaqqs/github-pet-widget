@@ -236,7 +236,8 @@ async function updateStatus() {
         const cfg = loadConfig();
         const seenPRs = cfg.seen_prs || {};
         const resolvedPRs = cfg.resolved_prs || {};
-        const status = await github.getStatus(seenPRs, true, resolvedPRs);
+        const watchedDevs = cfg.watched_devs || {};
+        const status = await github.getStatus(seenPRs, true, resolvedPRs, watchedDevs);
         if (status) {
             mainWindow.webContents.send('status-update', status);
             runAutoPilotTasks(status);
@@ -270,6 +271,28 @@ ipcMain.on('get-seen-prs', (event) => {
 ipcMain.on('get-token-history', (event) => {
     const history = loadConfig().token_history || [];
     event.reply('token-history', history);
+});
+
+
+// GESTIÓN DE DESARROLLADORES MONITOREADOS POR REPOSITORIO
+ipcMain.on('get-accessible-repos', async (event) => {
+    if (!github) {
+        event.reply('accessible-repos-data', []);
+        return;
+    }
+    const repos = await github.getAccessibleRepositories();
+    event.reply('accessible-repos-data', repos);
+});
+
+ipcMain.on('get-watched-devs', (event) => {
+    const config = loadConfig();
+    event.reply('watched-devs-data', config.watched_devs || {});
+});
+
+ipcMain.on('save-watched-devs', (event, watchedDevs) => {
+    saveConfig({ watched_devs: watchedDevs || {} });
+    event.reply('watched-devs-saved', { success: true });
+    updateStatus();
 });
 
 ipcMain.on('get-action-logs', (event) => {

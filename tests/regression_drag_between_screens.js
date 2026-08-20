@@ -98,6 +98,7 @@ function testRendererPetToggle() {
         'alerts-list', 'logs-list', 'user-header', 'token-input', 'auth-error-msg',
         'token-history-list', 'token-chips', 'pet', 'badge', 'toast-msg',
         'chk-autopilot', 'sel-days-threshold', 'chk-recent-only', 'chk-show-waiting', 'chk-show-viewed',
+        'watched-section', 'sel-watched-repo', 'input-watched-user', 'watched-devs-chips', 'btn-team',
         'tpl-review', 'tpl-autofix', 'tpl-conflict', 'ai-save-feedback', 'btn-refresh',
         'btn-logs', 'btn-ai', 'save-token-btn'
     ];

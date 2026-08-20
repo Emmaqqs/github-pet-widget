@@ -291,6 +291,7 @@
             align-items: center;
             gap: 2px;
         }
+        .tag-monitored { background: #cffafe; color: #0e7490; }
         .tag-conflict { background: #fee2e2; color: #991b1b; }
         .tag-feedback { background: #fef3c7; color: #92400e; }
         .tag-resolved { background: #d1fae5; color: #065f46; }
@@ -552,6 +553,7 @@
                 <div class="widget-header">
                     <div class="user-tag" id="user-header">👤 @Usuario</div>
                     <div class="header-actions">
+                        <button class="btn-icon" id="btn-team" title="Monitorear Compañeros por Repo" onclick="showWatchedDevsView()">👥</button>
                         <button class="btn-icon" id="btn-logs" title="Historial de Acciones IA" onclick="showActionLogs()">📋</button>
                         <button class="btn-icon" id="btn-ai" title="Ajustes de Prompts e IA" onclick="showAISettings()">🤖</button>
                         <button class="btn-icon" id="btn-refresh" title="Actualizar" onclick="refreshStatus()">↻</button>
@@ -564,6 +566,7 @@
                     <button class="filter-pill" data-filter="conflict" onclick="setCategoryFilter('conflict')">💥 Conflictos</button>
                     <button class="filter-pill" data-filter="feedback" onclick="setCategoryFilter('feedback')">💬 Feedback</button>
                     <button class="filter-pill" data-filter="review" onclick="setCategoryFilter('review')">⏳ Revisiones</button>
+                    <button class="filter-pill" data-filter="monitored" onclick="setCategoryFilter('monitored')">🎯 Monitoreados</button>
                     <button class="filter-pill" data-filter="resolved" onclick="setCategoryFilter('resolved')">✅ Resueltos</button>
                 </div>
 
@@ -586,6 +589,41 @@
                 <!-- Lista de PRs scrolleable -->
                 <div id="alerts-list">
                     <div class="empty-state happy">✨ ¡Todo al día! Sin pendientes.</div>
+                </div>
+            </div>
+
+            
+            <!-- VISTA: GESTIÓN DE COMPAÑEROS MONITOREADOS POR REPOSITORIO -->
+            <div id="watched-section" style="display: none; flex-direction: column; height: 100%; overflow-y: auto;">
+                <div class="section-header">
+                    <span>👥 Compañeros por Repositorio</span>
+                    <button class="btn-icon" onclick="showAlertsView()">✕</button>
+                </div>
+                <div style="flex: 1; overflow-y: auto; padding-right: 2px;">
+                    <div class="form-group">
+                        <label>1. Selecciona Repositorio:</label>
+                        <select id="sel-watched-repo" class="form-control" onchange="onWatchedRepoChange()">
+                            <option value="">Cargando repositorios...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>2. Agregar usuario a monitorear:</label>
+                        <div style="display: flex; gap: 4px;">
+                            <input type="text" id="input-watched-user" class="form-control" placeholder="ej: Jaime-4-1998">
+                            <button class="btn-primary" style="padding: 4px 8px;" onclick="addWatchedDev()">+ Seguir</button>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 8px;">
+                        <label>Desarrolladores seguidos en este repo:</label>
+                        <div id="watched-devs-chips" style="display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; padding: 4px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+                            <span style="font-size: 9.5px; color: #94a3b8;">Ningún desarrollador agregado aún.</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 6px; display: flex; justify-content: flex-end;">
+                    <button class="btn-primary" onclick="showAlertsView()">Listo</button>
                 </div>
             </div>
 
