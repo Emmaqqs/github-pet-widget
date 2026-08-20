@@ -6,15 +6,16 @@
     <title>GitHub Pet Widget</title>
     <style>
         :root {
-            --bg-glass: rgba(255, 255, 255, 0.95);
-            --border-glass: rgba(226, 232, 240, 0.85);
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --accent-red: #ef4444;
+            --accent-yellow: #f59e0b;
+            --accent-green: #10b981;
+            --accent-cyan: #06b6d4;
+            --bg-glass: rgba(255, 255, 255, 0.96);
+            --border-glass: rgba(226, 232, 240, 0.9);
             --text-main: #0f172a;
             --text-muted: #64748b;
-            --primary: #6366f1;
-            --primary-hover: #4f46e5;
-            --accent-green: #10b981;
-            --accent-amber: #f59e0b;
-            --accent-red: #ef4444;
         }
 
         * {
@@ -24,15 +25,12 @@
             padding: 0;
         }
 
-        body {
-            background-color: transparent;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
-            overflow: hidden;
+        html, body {
             width: 100vw;
             height: 100vh;
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
+            overflow: hidden;
+            background: transparent;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }
 
         #app {
@@ -40,63 +38,71 @@
             height: 100%;
             display: flex;
             flex-direction: column;
-            align-items: center;
+            align-items: flex-end;
             justify-content: flex-end;
-            padding-bottom: 6px;
+            padding: 6px;
         }
 
-        /* Globo de diálogo principal */
+        /* Globo de Diálogo Flotante */
         #bubble {
+            width: 318px;
+            height: 310px;
             background: var(--bg-glass);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border-glass);
-            border-radius: 16px;
-            padding: 10px 12px 12px;
-            width: 320px;
-            max-height: 320px;
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16), 0 4px 8px rgba(0, 0, 0, 0.05);
-            font-size: 12px;
-            color: var(--text-main);
+            border-radius: 14px;
+            padding: 8px 10px 10px 10px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
             display: flex;
             flex-direction: column;
             position: relative;
             margin-bottom: 6px;
-            z-index: 10;
-            transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s;
-            overflow: hidden;
+            backdrop-filter: blur(16px);
+            transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         #bubble.hidden {
             opacity: 0;
-            visibility: hidden;
             pointer-events: none;
-            transform: translateY(14px) scale(0.96);
+            transform: scale(0.92) translateY(12px);
+            display: none !important;
         }
 
-        /* Handle de arrastre integrado dentro del globo */
+        /* Barra de Arrastre Superior Amplia y Fácil de Agarrar */
         #drag-handle {
-            width: 70px;
-            height: 5px;
-            background: #cbd5e1;
-            border-radius: 3px;
-            margin: 0 auto 6px;
-            cursor: move;
-            -webkit-app-region: drag;
+            width: 100%;
+            height: 18px;
+            cursor: grab;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 4px;
+            border-radius: 6px;
+            background: rgba(241, 245, 249, 0.6);
             transition: background 0.15s ease;
         }
         #drag-handle:hover {
-            background: #94a3b8;
+            background: rgba(226, 232, 240, 0.9);
+        }
+        #drag-handle:active {
+            cursor: grabbing;
+            background: rgba(203, 213, 225, 0.9);
+        }
+        #drag-handle::before {
+            content: '⠿ ⠿ ⠿ ⠿ ⠿';
+            font-size: 10px;
+            color: #94a3b8;
+            letter-spacing: 2px;
+            line-height: 1;
         }
 
-        /* Banner Toast */
+        /* Toast de Notificación */
         #toast-msg {
             display: none;
             background: #0f172a;
-            color: #f8fafc;
-            font-size: 10.5px;
-            font-weight: 500;
-            padding: 7px 10px;
+            color: #ffffff;
+            font-size: 9.5px;
+            font-weight: 600;
+            padding: 5px 8px;
             border-radius: 8px;
             margin-bottom: 6px;
             word-break: break-word;
@@ -144,7 +150,7 @@
             color: var(--text-main);
         }
 
-        /* Pestañas de Filtro Responsivas (con flex-wrap para que todas se vean) */
+        /* Pestañas de Filtro Responsivas */
         .filter-tabs {
             display: flex;
             flex-wrap: wrap;
@@ -155,8 +161,8 @@
             background: rgba(241, 245, 249, 0.8);
             border: 1px solid rgba(226, 232, 240, 0.9);
             border-radius: 10px;
-            padding: 2px 7px;
-            font-size: 10px;
+            padding: 2px 6px;
+            font-size: 9.5px;
             font-weight: 600;
             color: var(--text-muted);
             cursor: pointer;
@@ -179,7 +185,7 @@
             align-items: center;
             justify-content: space-between;
             margin-bottom: 6px;
-            font-size: 10px;
+            font-size: 9.5px;
             color: var(--text-muted);
         }
         .checkbox-label {
@@ -214,7 +220,7 @@
             background: #ffffff;
             border: 1px solid rgba(226, 232, 240, 0.9);
             border-radius: 9px;
-            padding: 7px 9px;
+            padding: 6px 8px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.03);
             display: flex;
             flex-direction: column;
@@ -233,7 +239,7 @@
             gap: 6px;
         }
         .repo-badge {
-            font-size: 9px;
+            font-size: 8.5px;
             font-weight: 600;
             color: #475569;
             background: #f1f5f9;
@@ -245,7 +251,7 @@
             max-width: 140px;
         }
         .time-badge {
-            font-size: 9px;
+            font-size: 8.5px;
             color: #94a3b8;
             font-weight: 500;
         }
@@ -254,7 +260,7 @@
             color: var(--text-main);
             text-decoration: none;
             font-weight: 600;
-            font-size: 11px;
+            font-size: 10.5px;
             line-height: 1.35;
             display: -webkit-box;
             -webkit-line-clamp: 2;
@@ -266,14 +272,13 @@
         }
 
         .card-state {
-            font-size: 10px;
+            font-size: 9.5px;
             font-weight: 500;
             color: var(--text-muted);
             display: flex;
             align-items: center;
             gap: 3px;
         }
-
 
         /* Badges de etiquetas múltiples */
         .card-tags {
@@ -336,7 +341,7 @@
         .card-actions {
             display: flex;
             align-items: center;
-            gap: 5px;
+            gap: 4px;
             margin-top: 3px;
             padding-top: 3px;
             border-top: 1px dashed rgba(226, 232, 240, 0.8);
@@ -346,8 +351,8 @@
             color: #ffffff;
             border: none;
             border-radius: 5px;
-            padding: 3px 7px;
-            font-size: 10px;
+            padding: 3px 6px;
+            font-size: 9.5px;
             font-weight: 600;
             cursor: pointer;
             display: flex;
@@ -375,7 +380,7 @@
             border: 1px solid rgba(203, 213, 225, 0.7);
             border-radius: 5px;
             padding: 2px 5px;
-            font-size: 9px;
+            font-size: 8.5px;
             color: var(--text-muted);
             cursor: pointer;
             margin-left: auto;
@@ -385,8 +390,8 @@
             color: var(--text-main);
         }
 
-        /* Sección de Historial de Logs */
-        #logs-section, #ai-settings-section, #auth-section {
+        /* Secciones Secundarias */
+        #watched-section, #logs-section, #ai-settings-section, #auth-section {
             display: none;
             flex-direction: column;
             height: 100%;
@@ -394,11 +399,13 @@
         }
         .section-header {
             font-weight: 700;
-            font-size: 11.5px;
+            font-size: 11px;
             margin-bottom: 6px;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #e2e8f0;
         }
         .log-item {
             background: #ffffff;
@@ -426,7 +433,7 @@
             display: inline-block;
             cursor: grab;
             padding: 2px;
-            margin-top: 2px;
+            margin-top: 0px;
             z-index: 20;
             touch-action: none;
         }
@@ -436,8 +443,8 @@
 
         /* Mascota */
         #pet {
-            width: 74px;
-            height: 74px;
+            width: 72px;
+            height: 72px;
             position: relative;
             cursor: grab;
             filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25));
@@ -448,55 +455,56 @@
             transform: scale(0.96);
         }
         #pet:hover {
-            transform: scale(1.05);
+            transform: translateY(-2px) scale(1.03);
         }
 
-        .pet-ear {
-            position: absolute;
-            top: 4px;
-            width: 0;
-            height: 0;
-            border-left: 13px solid transparent;
-            border-right: 13px solid transparent;
-            border-bottom: 20px solid currentColor;
-            transition: border-bottom-color 0.4s ease;
-        }
-        .pet-ear.left { left: 4px; transform: rotate(-15deg); }
-        .pet-ear.right { right: 4px; transform: rotate(15deg); }
-
+        /* Anatomía de la Mascota */
         .pet-body {
             position: absolute;
-            top: 13px;
-            left: 2px;
-            width: 70px;
-            height: 60px;
-            background-color: currentColor;
-            border-radius: 35px 35px 27px 27px;
-            transition: background-color 0.4s ease;
+            bottom: 0;
+            left: 5px;
+            width: 62px;
+            height: 52px;
+            background: currentColor;
+            border-radius: 31px 31px 26px 26px;
+            box-shadow: inset 0 -4px 6px rgba(0, 0, 0, 0.15);
         }
+        .pet-ear {
+            position: absolute;
+            top: 2px;
+            width: 0;
+            height: 0;
+            border-left: 11px solid transparent;
+            border-right: 11px solid transparent;
+            border-bottom: 22px solid currentColor;
+            filter: drop-shadow(0 -1px 2px rgba(0,0,0,0.1));
+        }
+        .pet-ear.left { left: 8px; transform: rotate(-16deg); }
+        .pet-ear.right { right: 8px; transform: rotate(16deg); }
 
         .pet-eye {
             position: absolute;
-            top: 25px;
+            top: 15px;
             width: 7px;
             height: 7px;
-            background-color: #0f172a;
+            background: #0f172a;
             border-radius: 50%;
+            transition: transform 0.15s ease, height 0.15s ease;
         }
-        .pet-eye.left { left: 21px; }
-        .pet-eye.right { right: 21px; }
+        .pet-eye.left { left: 16px; }
+        .pet-eye.right { right: 16px; }
 
         .pet-nose {
             position: absolute;
-            top: 31px;
-            left: 34px;
-            width: 6px;
+            top: 24px;
+            left: 27px;
+            width: 8px;
             height: 5px;
-            background-color: #f43f5e;
-            border-radius: 50%;
+            background: #fda4af;
+            border-radius: 4px;
         }
 
-        /* Badge numérico */
+        /* Badge de Notificación */
         #badge {
             position: absolute;
             top: -2px;
@@ -527,11 +535,11 @@
         body.state-disconnected #pet { color: #94a3b8; }
 
         .form-group { margin-bottom: 6px; }
-        .form-group label { display: block; font-size: 10px; font-weight: 600; color: #475569; margin-bottom: 2px; }
-        .form-control { width: 100%; padding: 5px 7px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 10.5px; font-family: inherit; }
-        .btn-primary { background: var(--primary); color: #ffffff; border: none; border-radius: 5px; padding: 5px 10px; font-weight: 600; font-size: 10.5px; cursor: pointer; }
-        .btn-secondary { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; border-radius: 5px; padding: 5px 10px; font-size: 10.5px; cursor: pointer; }
-        .empty-state { text-align: center; color: #94a3b8; font-size: 11px; padding: 20px 6px; }
+        .form-group label { display: block; font-size: 9.5px; font-weight: 600; color: #475569; margin-bottom: 2px; }
+        .form-control { width: 100%; padding: 4px 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 10px; font-family: inherit; }
+        .btn-primary { background: var(--primary); color: #ffffff; border: none; border-radius: 5px; padding: 4px 8px; font-weight: 600; font-size: 10px; cursor: pointer; }
+        .btn-secondary { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; border-radius: 5px; padding: 4px 8px; font-size: 10px; cursor: pointer; }
+        .empty-state { text-align: center; color: #94a3b8; font-size: 10.5px; padding: 20px 6px; }
         .empty-state.happy { color: #10b981; font-weight: 600; }
 
         @keyframes fadeIn {
@@ -592,9 +600,8 @@
                 </div>
             </div>
 
-            
             <!-- VISTA: GESTIÓN DE COMPAÑEROS MONITOREADOS POR REPOSITORIO -->
-            <div id="watched-section" style="display: none; flex-direction: column; height: 100%; overflow-y: auto;">
+            <div id="watched-section">
                 <div class="section-header">
                     <span>👥 Compañeros por Repositorio</span>
                     <button class="btn-icon" onclick="showAlertsView()">✕</button>
@@ -602,46 +609,34 @@
                 <div style="flex: 1; overflow-y: auto; padding-right: 2px;">
                     <div class="form-group">
                         <label>1. Buscar o Seleccionar Repositorio:</label>
-                        <input type="text" id="input-search-repo" class="form-control" placeholder="🔍 Buscar repositorio..." oninput="onSearchRepoInput()" style="margin-bottom: 4px;">
-                        <div id="repo-suggestions-list" style="max-height: 80px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; display: none;"></div>
+                        <input type="text" id="input-search-repo" class="form-control" placeholder="🔍 Buscar repositorio..." oninput="onSearchRepoInput()" style="margin-bottom: 3px;">
+                        <div id="repo-suggestions-list" style="max-height: 70px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; display: none;"></div>
                         <div id="selected-repo-label" style="font-size: 10px; font-weight: 700; color: var(--primary); margin-top: 3px; display: none;"></div>
                     </div>
 
-                    <div class="form-group" id="members-discovery-group" style="display: none; margin-top: 6px;">
-                        <label>2. Miembros / Contribuidores en este repo:</label>
+                    <div class="form-group" id="members-discovery-group" style="display: none;">
+                        <label>2. Miembros encontrados en este repo:</label>
                         <div id="discovered-members-chips" style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px;">
                             <span style="font-size: 9.5px; color: #94a3b8;">Cargando miembros...</span>
                         </div>
                     </div>
 
-                    <div class="form-group" style="margin-top: 6px;">
+                    <div class="form-group" style="margin-top: 4px;">
                         <label>3. O escribe el usuario manualmente:</label>
                         <div style="display: flex; gap: 4px;">
                             <input type="text" id="input-watched-user" class="form-control" placeholder="ej: Jaime-4-1998">
-                            <button class="btn-primary" style="padding: 4px 8px;" onclick="addWatchedDev()">+ Seguir</button>
+                            <button class="btn-primary" style="padding: 3px 7px;" onclick="addWatchedDev()">+ Seguir</button>
                         </div>
                     </div>
 
-                    <div class="form-group" style="margin-top: 6px;">
+                    <div class="form-group" style="margin-top: 4px;">
                         <label>Desarrolladores seguidos en este repo:</label>
-                        <div id="watched-devs-chips" style="display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; padding: 4px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+                        <div id="watched-devs-chips" style="display: flex; flex-wrap: wrap; gap: 3px; min-height: 24px; padding: 4px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
                             <span style="font-size: 9.5px; color: #94a3b8;">Selecciona un repositorio para ver los seguidos.</span>
                         </div>
                     </div>
                 </div>
-                <div style="margin-top: 6px; display: flex; justify-content: flex-end;">
-                    <button class="btn-primary" onclick="showAlertsView()">Listo</button>
-                </div>
-            </div>
-
-                    <div class="form-group" style="margin-top: 8px;">
-                        <label>Desarrolladores seguidos en este repo:</label>
-                        <div id="watched-devs-chips" style="display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; padding: 4px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
-                            <span style="font-size: 9.5px; color: #94a3b8;">Ningún desarrollador agregado aún.</span>
-                        </div>
-                    </div>
-                </div>
-                <div style="margin-top: 6px; display: flex; justify-content: flex-end;">
+                <div style="margin-top: 4px; display: flex; justify-content: flex-end;">
                     <button class="btn-primary" onclick="showAlertsView()">Listo</button>
                 </div>
             </div>
@@ -655,8 +650,8 @@
                 <div id="logs-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px;">
                     <div class="empty-state">No hay acciones registradas aún.</div>
                 </div>
-                <div style="margin-top: 6px; display: flex; justify-content: flex-end;">
-                    <button class="btn-secondary" style="font-size: 10px;" onclick="clearActionLogs()">Limpiar Historial</button>
+                <div style="margin-top: 4px; display: flex; justify-content: flex-end;">
+                    <button class="btn-secondary" style="font-size: 9.5px;" onclick="clearActionLogs()">Limpiar Historial</button>
                 </div>
             </div>
 
@@ -672,7 +667,7 @@
                             <input type="checkbox" id="chk-autopilot" style="accent-color: var(--primary);">
                             <strong style="color: var(--primary);">🚀 Modo Auto-Pilot Total</strong>
                         </label>
-                        <span style="font-size: 9.5px; color: var(--text-muted); display: block; margin-top: 2px;">
+                        <span style="font-size: 9px; color: var(--text-muted); display: block; margin-top: 2px;">
                             Resuelve en worktree, auto-cura tests y hace git push automáticamente en segundo plano.
                         </span>
                     </div>
@@ -702,11 +697,11 @@
                     </div>
                 </div>
 
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding-top: 6px; border-top: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; padding-top: 4px; border-top: 1px solid #e2e8f0;">
                     <button class="btn-secondary" onclick="resetAITemplates()">Restaurar</button>
                     <button class="btn-primary" onclick="saveAISettings()">Guardar</button>
                 </div>
-                <div id="ai-save-feedback" style="display: none; font-size: 10px; color: #10b981; text-align: center; margin-top: 4px;">
+                <div id="ai-save-feedback" style="display: none; font-size: 9.5px; color: #10b981; text-align: center; margin-top: 4px;">
                     ✅ Ajustes guardados correctamente
                 </div>
             </div>
@@ -722,9 +717,9 @@
                         <label>Personal Access Token:</label>
                         <input type="password" id="token-input" class="form-control" placeholder="ghp_...">
                     </div>
-                    <div id="auth-error-msg" style="display: none; color: var(--accent-red); font-size: 10px; margin-bottom: 6px;"></div>
+                    <div id="auth-error-msg" style="display: none; color: var(--accent-red); font-size: 9.5px; margin-bottom: 6px;"></div>
                     <div id="token-history-list" style="display: none; margin-bottom: 6px;">
-                        <span style="font-size: 9.5px; color: var(--text-muted);">Cuentas anteriores:</span>
+                        <span style="font-size: 9px; color: var(--text-muted);">Cuentas anteriores:</span>
                         <div id="token-chips" style="display: flex; gap: 4px; margin-top: 2px;"></div>
                     </div>
                 </div>
