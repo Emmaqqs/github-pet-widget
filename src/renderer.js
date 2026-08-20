@@ -25,7 +25,11 @@ const chkRecentOnly = document.getElementById('chk-recent-only');
 const chkShowWaiting = document.getElementById('chk-show-waiting');
 const chkShowViewed = document.getElementById('chk-show-viewed');
 
-const selWatchedRepo = document.getElementById('sel-watched-repo');
+const inputSearchRepo = document.getElementById('input-search-repo');
+const repoSuggestionsList = document.getElementById('repo-suggestions-list');
+const selectedRepoLabel = document.getElementById('selected-repo-label');
+const membersDiscoveryGroup = document.getElementById('members-discovery-group');
+const discoveredMembersChips = document.getElementById('discovered-members-chips');
 const inputWatchedUser = document.getElementById('input-watched-user');
 const watchedDevsChips = document.getElementById('watched-devs-chips');
 
@@ -33,6 +37,7 @@ let isBubbleVisible = true;
 let prevTotalAlerts = -1;
 let currentCategoryFilter = 'all';
 let daysThreshold = 7;
+let currentSelectedRepo = '';
 const alertStore = new Map();
 const viewedAt = new Map();
 let actionLogs = [];
@@ -163,7 +168,7 @@ function toggleShowViewed() { renderAlerts(); }
 window.toggleShowViewed = toggleShowViewed;
 
 // =========================================================================
-// GESTIÓN DE COMPAÑEROS MONITOREADOS POR REPOSITORIO
+// BUSCADOR DE REPOSITORIOS Y AUTO-FETCH DE MIEMBROS
 // =========================================================================
 
 function showWatchedDevsView() {
@@ -172,6 +177,8 @@ function showWatchedDevsView() {
     aiSettingsSection.style.display = 'none';
     authSection.style.display = 'none';
     watchedSection.style.display = 'flex';
+    inputSearchRepo.value = '';
+    repoSuggestionsList.style.display = 'none';
     ipcRenderer.send('get-accessible-repos');
     ipcRenderer.send('get-watched-devs');
 }
@@ -179,18 +186,9 @@ window.showWatchedDevsView = showWatchedDevsView;
 
 ipcRenderer.on('accessible-repos-data', (event, repos) => {
     accessibleRepos = repos || [];
-    selWatchedRepo.replaceChildren();
-    if (accessibleRepos.length === 0) {
-        selWatchedRepo.innerHTML = '<option value="">No se encontraron repositorios</option>';
-        return;
+    if (accessibleRepos.length > 0 && !currentSelectedRepo) {
+        selectRepoForMonitoring(accessibleRepos[0].name);
     }
-    accessibleRepos.forEach(r => {
-        const opt = document.createElement('option');
-        opt.value = r.name;
-        opt.textContent = r.name + (r.isPrivate ? ' 🔒' : '');
-        selWatchedRepo.appendChild(opt);
-    });
-    renderWatchedChips();
 });
 
 ipcRenderer.on('watched-devs-data', (event, data) => {
@@ -198,15 +196,87 @@ ipcRenderer.on('watched-devs-data', (event, data) => {
     renderWatchedChips();
 });
 
-function onWatchedRepoChange() {
+function onSearchRepoInput() {
+    const query = inputSearchRepo.value.trim().toLowerCase();
+    if (!query) {
+        repoSuggestionsList.style.display = 'none';
+        return;
+    }
+    const filtered = accessibleRepos.filter(r => r.name.toLowerCase().includes(query));
+    repoSuggestionsList.replaceChildren();
+    if (filtered.length === 0) {
+        repoSuggestionsList.innerHTML = '<div style="padding: 4px 8px; font-size: 10px; color: #94a3b8;">No se encontraron repositorios</div>';
+    } else {
+        filtered.slice(0, 8).forEach(r => {
+            const item = document.createElement('div');
+            item.style.padding = '4px 8px';
+            item.style.fontSize = '10.5px';
+            item.style.cursor = 'pointer';
+            item.style.borderBottom = '1px solid #f1f5f9';
+            item.textContent = r.name + (r.isPrivate ? ' 🔒' : '');
+            item.addEventListener('mouseenter', () => item.style.background = '#e0e7ff');
+            item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+            item.addEventListener('click', () => {
+                selectRepoForMonitoring(r.name);
+                repoSuggestionsList.style.display = 'none';
+                inputSearchRepo.value = '';
+            });
+            repoSuggestionsList.appendChild(item);
+        });
+    }
+    repoSuggestionsList.style.display = 'block';
+}
+window.onSearchRepoInput = onSearchRepoInput;
+
+function selectRepoForMonitoring(repoName) {
+    currentSelectedRepo = repoName;
+    selectedRepoLabel.textContent = '📁 ' + repoName;
+    selectedRepoLabel.style.display = 'block';
+    membersDiscoveryGroup.style.display = 'block';
+    discoveredMembersChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Buscando miembros de @' + repoName + '...</span>';
+    ipcRenderer.send('get-repo-members', repoName);
     renderWatchedChips();
 }
-window.onWatchedRepoChange = onWatchedRepoChange;
+
+ipcRenderer.on('repo-members-data', (event, { repo, members }) => {
+    if (repo !== currentSelectedRepo) return;
+    discoveredMembersChips.replaceChildren();
+    if (!members || members.length === 0) {
+        discoveredMembersChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Sin otros contribuidores listados.</span>';
+        return;
+    }
+    members.forEach(member => {
+        const chip = document.createElement('button');
+        chip.className = 'filter-pill';
+        chip.style.fontSize = '9.5px';
+        chip.style.padding = '2px 6px';
+        chip.textContent = '+ @' + member;
+        chip.title = 'Clic para comenzar a monitorear a @' + member;
+        chip.addEventListener('click', () => {
+            quickAddWatchedDev(member);
+        });
+        discoveredMembersChips.appendChild(chip);
+    });
+});
+
+function quickAddWatchedDev(user) {
+    if (!currentSelectedRepo || !user) return;
+    if (!watchedDevsMap[currentSelectedRepo]) watchedDevsMap[currentSelectedRepo] = [];
+    if (!watchedDevsMap[currentSelectedRepo].includes(user)) {
+        watchedDevsMap[currentSelectedRepo].push(user);
+        ipcRenderer.send('save-watched-devs', watchedDevsMap);
+        showToast(`🎯 Monitoreando a @${user} en ${currentSelectedRepo}`);
+        renderWatchedChips();
+    }
+}
 
 function renderWatchedChips() {
-    const repo = selWatchedRepo.value;
     watchedDevsChips.replaceChildren();
-    const devs = (watchedDevsMap[repo] || []);
+    if (!currentSelectedRepo) {
+        watchedDevsChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Selecciona un repositorio para ver los seguidos.</span>';
+        return;
+    }
+    const devs = (watchedDevsMap[currentSelectedRepo] || []);
     if (devs.length === 0) {
         watchedDevsChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Ningún desarrollador agregado aún en este repo.</span>';
         return;
@@ -222,24 +292,16 @@ function renderWatchedChips() {
 }
 
 function addWatchedDev() {
-    const repo = selWatchedRepo.value;
     const user = inputWatchedUser.value.trim().replace(/^@/, '');
-    if (!repo || !user) return;
-    if (!watchedDevsMap[repo]) watchedDevsMap[repo] = [];
-    if (!watchedDevsMap[repo].includes(user)) {
-        watchedDevsMap[repo].push(user);
-        ipcRenderer.send('save-watched-devs', watchedDevsMap);
-        showToast(`🎯 Monitoreando a @${user} en ${repo}`);
-    }
+    if (!currentSelectedRepo || !user) return;
+    quickAddWatchedDev(user);
     inputWatchedUser.value = '';
-    renderWatchedChips();
 }
 window.addWatchedDev = addWatchedDev;
 
 function removeWatchedDev(user) {
-    const repo = selWatchedRepo.value;
-    if (!repo || !watchedDevsMap[repo]) return;
-    watchedDevsMap[repo] = watchedDevsMap[repo].filter(u => u !== user);
+    if (!currentSelectedRepo || !watchedDevsMap[currentSelectedRepo]) return;
+    watchedDevsMap[currentSelectedRepo] = watchedDevsMap[currentSelectedRepo].filter(u => u !== user);
     ipcRenderer.send('save-watched-devs', watchedDevsMap);
     renderWatchedChips();
 }
@@ -294,7 +356,7 @@ ipcRenderer.on('action-completed', (event, result) => {
 });
 
 // =========================================================================
-// RENDERIZADO DE TARJETAS CON ETIQUETAS MÚLTIPLES E HISTORIAL INDIVIDUAL
+// RENDERIZADO DE TARJETAS CON ETIQUETAS MÚLTIPLES E HISTORIAL INTEGRADO
 // =========================================================================
 
 function createAlertCard(a, viewed) {
@@ -377,9 +439,20 @@ function createAlertCard(a, viewed) {
         card.appendChild(stateEl);
     }
 
+    // Historial integrado (GitHub + Acciones IA locales)
     const historyBox = document.createElement('div');
     historyBox.className = 'pr-history-box';
-    const timeline = a.historyTimeline || [];
+    const timeline = [...(a.historyTimeline || [])];
+
+    if (a.resolved_info) {
+        timeline.unshift({
+            user: 'OpenAI Luna',
+            type: 'AI Resolution',
+            date: a.resolved_info.resolvedAt,
+            bodyExcerpt: `🚀 ${a.resolved_info.actionType || 'Fix'} resuelto y pusheado con tests pasando.`
+        });
+    }
+
     if (timeline.length > 0) {
         timeline.forEach(ev => {
             const h = document.createElement('div');

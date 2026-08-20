@@ -96,6 +96,33 @@ class GitHubService {
         }
     }
 
+    async getRepositoryCollaborators(owner, repo) {
+        try {
+            const octokit = await this.getOctokit();
+            // Intentar colaboradores primero, con fallback a contribuidores
+            let members = [];
+            try {
+                const response = await octokit.request('GET /repos/{owner}/{repo}/collaborators', {
+                    owner, repo, per_page: 30,
+                    headers: { 'X-GitHub-Api-Version': API_VERSION }
+                });
+                this.rememberRateLimit(response);
+                members = (response.data || []).map(u => u.login);
+            } catch (_) {
+                const response = await octokit.request('GET /repos/{owner}/{repo}/contributors', {
+                    owner, repo, per_page: 30,
+                    headers: { 'X-GitHub-Api-Version': API_VERSION }
+                });
+                this.rememberRateLimit(response);
+                members = (response.data || []).map(u => u.login);
+            }
+            return members.filter(u => !isSameUser({ login: u }, this.username));
+        } catch (error) {
+            console.error(`Error fetching collaborators for ${owner}/${repo}:`, error.message);
+            return [];
+        }
+    }
+
     async getAccessibleRepositories() {
         try {
             const octokit = await this.getOctokit();

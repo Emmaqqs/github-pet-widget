@@ -93,12 +93,13 @@ function testRendererPetToggle() {
         set value(v) { this._val = v; }, get value() { return this._val; }
     });
     const elements = {};
-    const ids = [
+        const ids = [
         'bubble', 'alerts-section', 'logs-section', 'ai-settings-section', 'auth-section',
         'alerts-list', 'logs-list', 'user-header', 'token-input', 'auth-error-msg',
         'token-history-list', 'token-chips', 'pet', 'badge', 'toast-msg',
         'chk-autopilot', 'sel-days-threshold', 'chk-recent-only', 'chk-show-waiting', 'chk-show-viewed',
-        'watched-section', 'sel-watched-repo', 'input-watched-user', 'watched-devs-chips', 'btn-team',
+        'watched-section', 'input-search-repo', 'repo-suggestions-list', 'selected-repo-label',
+        'members-discovery-group', 'discovered-members-chips', 'input-watched-user', 'watched-devs-chips', 'btn-team',
         'tpl-review', 'tpl-autofix', 'tpl-conflict', 'ai-save-feedback', 'btn-refresh',
         'btn-logs', 'btn-ai', 'save-token-btn'
     ];

@@ -275,6 +275,17 @@ ipcMain.on('get-token-history', (event) => {
 
 
 // GESTIÓN DE DESARROLLADORES MONITOREADOS POR REPOSITORIO
+
+ipcMain.on('get-repo-members', async (event, repoFullName) => {
+    if (!github || !repoFullName) {
+        event.reply('repo-members-data', { repo: repoFullName, members: [] });
+        return;
+    }
+    const [owner, repo] = repoFullName.split('/');
+    const members = await github.getRepositoryCollaborators(owner, repo);
+    event.reply('repo-members-data', { repo: repoFullName, members });
+});
+
 ipcMain.on('get-accessible-repos', async (event) => {
     if (!github) {
         event.reply('accessible-repos-data', []);

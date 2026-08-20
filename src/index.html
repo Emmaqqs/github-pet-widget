@@ -601,19 +601,38 @@
                 </div>
                 <div style="flex: 1; overflow-y: auto; padding-right: 2px;">
                     <div class="form-group">
-                        <label>1. Selecciona Repositorio:</label>
-                        <select id="sel-watched-repo" class="form-control" onchange="onWatchedRepoChange()">
-                            <option value="">Cargando repositorios...</option>
-                        </select>
+                        <label>1. Buscar o Seleccionar Repositorio:</label>
+                        <input type="text" id="input-search-repo" class="form-control" placeholder="🔍 Buscar repositorio..." oninput="onSearchRepoInput()" style="margin-bottom: 4px;">
+                        <div id="repo-suggestions-list" style="max-height: 80px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; display: none;"></div>
+                        <div id="selected-repo-label" style="font-size: 10px; font-weight: 700; color: var(--primary); margin-top: 3px; display: none;"></div>
                     </div>
 
-                    <div class="form-group">
-                        <label>2. Agregar usuario a monitorear:</label>
+                    <div class="form-group" id="members-discovery-group" style="display: none; margin-top: 6px;">
+                        <label>2. Miembros / Contribuidores en este repo:</label>
+                        <div id="discovered-members-chips" style="display: flex; flex-wrap: wrap; gap: 3px; margin-top: 2px;">
+                            <span style="font-size: 9.5px; color: #94a3b8;">Cargando miembros...</span>
+                        </div>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 6px;">
+                        <label>3. O escribe el usuario manualmente:</label>
                         <div style="display: flex; gap: 4px;">
                             <input type="text" id="input-watched-user" class="form-control" placeholder="ej: Jaime-4-1998">
                             <button class="btn-primary" style="padding: 4px 8px;" onclick="addWatchedDev()">+ Seguir</button>
                         </div>
                     </div>
+
+                    <div class="form-group" style="margin-top: 6px;">
+                        <label>Desarrolladores seguidos en este repo:</label>
+                        <div id="watched-devs-chips" style="display: flex; flex-wrap: wrap; gap: 4px; min-height: 24px; padding: 4px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+                            <span style="font-size: 9.5px; color: #94a3b8;">Selecciona un repositorio para ver los seguidos.</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top: 6px; display: flex; justify-content: flex-end;">
+                    <button class="btn-primary" onclick="showAlertsView()">Listo</button>
+                </div>
+            </div>
 
                     <div class="form-group" style="margin-top: 8px;">
                         <label>Desarrolladores seguidos en este repo:</label>
