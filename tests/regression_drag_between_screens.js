@@ -93,7 +93,7 @@ function testRendererPetToggle() {
         set value(v) { this._val = v; }, get value() { return this._val; }
     });
     const elements = {};
-            const ids = [
+    const ids = [
         'bubble', 'drag-handle', 'alerts-section', 'logs-section', 'ai-settings-section', 'auth-section',
         'alerts-list', 'logs-list', 'user-header', 'token-input', 'auth-error-msg',
         'token-history-list', 'token-chips', 'pet', 'badge', 'toast-msg',
@@ -130,12 +130,7 @@ function testRendererPetToggle() {
     assert.ok(typeof pointerUp === 'function', 'pointerup debe registrarse en window');
     
     pointerUp();
-    assert.ok(classes.has('hidden'), 'el primer clic debe agregar .hidden para ocultar el globo');
-
-    petPointerDown({ button: 0, screenX: 100, screenY: 100 });
-    const pointerUp2 = windowListeners.get('window:pointerup');
-    pointerUp2();
-    assert.ok(!classes.has('hidden'), 'el segundo clic debe restaurar el globo');
+    assert.ok(classes.has('anim-happy'), 'el clic en la mascota debe disparar anim-happy sin desaparecer');
 }
 
 testWorkAreaOrigin();

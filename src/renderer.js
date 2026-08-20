@@ -17,6 +17,7 @@ const tokenChips = document.getElementById('token-chips');
 const pet = document.getElementById('pet');
 const badge = document.getElementById('badge');
 const toastMsg = document.getElementById('toast-msg');
+const dragHandle = document.getElementById('drag-handle');
 const body = document.body;
 
 const chkAutopilot = document.getElementById('chk-autopilot');
@@ -33,7 +34,6 @@ const discoveredMembersChips = document.getElementById('discovered-members-chips
 const inputWatchedUser = document.getElementById('input-watched-user');
 const watchedDevsChips = document.getElementById('watched-devs-chips');
 
-let isBubbleVisible = true;
 let prevTotalAlerts = -1;
 let currentCategoryFilter = 'all';
 let daysThreshold = 7;
@@ -68,42 +68,58 @@ function isViewed(a) {
 }
 
 // =========================================================================
-// ARRASTRE FLUIDO DE LA MASCOTA Y TOGGLE CON CLIC
+// ARRASTRE SEGURO Y SINCRONIZADO (MASCOTA Y BARRA SUPERIOR)
 // =========================================================================
 
-let isDraggingPet = false;
-let petDragStartX = 0;
-let petDragStartY = 0;
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
 
-pet.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    isDraggingPet = false;
-    petDragStartX = e.screenX;
-    petDragStartY = e.screenY;
-    ipcRenderer.send('start-window-drag', { x: Math.round(e.screenX), y: Math.round(e.screenY) });
-    
-    const onPointerMove = (moveEv) => {
-        const dist = Math.hypot(moveEv.screenX - petDragStartX, moveEv.screenY - petDragStartY);
-        if (dist > 3) {
-            isDraggingPet = true;
-            ipcRenderer.send('window-drag-move', { screenX: Math.round(moveEv.screenX), screenY: Math.round(moveEv.screenY) });
-        }
-    };
+function setupWindowDrag(element, isPet = false) {
+    if (!element) return;
+    element.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        isDragging = false;
+        dragStartX = e.screenX;
+        dragStartY = e.screenY;
+        ipcRenderer.send('start-window-drag', {
+            screenX: Math.round(e.screenX),
+            screenY: Math.round(e.screenY),
+            x: Math.round(e.screenX),
+            y: Math.round(e.screenY)
+        });
 
-    const onPointerUp = () => {
-        window.removeEventListener('pointermove', onPointerMove);
-        window.removeEventListener('pointerup', onPointerUp);
-        if (!isDraggingPet) {
-            isBubbleVisible = !isBubbleVisible;
-            if (isBubbleVisible) bubble.classList.remove('hidden');
-            else bubble.classList.add('hidden');
-        }
-        ipcRenderer.send('end-window-drag');
-    };
+        const onPointerMove = (moveEv) => {
+            const dist = Math.hypot(moveEv.screenX - dragStartX, moveEv.screenY - dragStartY);
+            if (dist > 5) {
+                isDragging = true;
+                ipcRenderer.send('window-drag-move', {
+                    screenX: Math.round(moveEv.screenX),
+                    screenY: Math.round(moveEv.screenY),
+                    x: Math.round(moveEv.screenX),
+                    y: Math.round(moveEv.screenY)
+                });
+            }
+        };
 
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-});
+        const onPointerUp = () => {
+            window.removeEventListener('pointermove', onPointerMove);
+            window.removeEventListener('pointerup', onPointerUp);
+            if (!isDragging && isPet) {
+                triggerHappyAnimation();
+            }
+            if (isDragging) {
+                ipcRenderer.send('end-window-drag');
+            }
+        };
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+    });
+}
+
+setupWindowDrag(pet, true);
+if (dragHandle) setupWindowDrag(dragHandle, false);
 
 pet.addEventListener('contextmenu', (e) => {
     e.preventDefault();
@@ -146,7 +162,7 @@ function openURL(url) { shell.openExternal(url); }
 window.openURL = openURL;
 
 // =========================================================================
-// FILTROS AVANZADOS (CATEGORÍAS, MONITOREADOS, 7 DÍAS, EN ESPERA, VISTOS)
+// FILTROS AVANZADOS
 // =========================================================================
 
 function setCategoryFilter(filter) {
@@ -168,7 +184,7 @@ function toggleShowViewed() { renderAlerts(); }
 window.toggleShowViewed = toggleShowViewed;
 
 // =========================================================================
-// BUSCADOR DE REPOSITORIOS Y AUTO-FETCH DE MIEMBROS
+// GESTIÓN DE COMPAÑEROS MONITOREADOS POR REPOSITORIO
 // =========================================================================
 
 function showWatchedDevsView() {
@@ -210,7 +226,7 @@ function onSearchRepoInput() {
         filtered.slice(0, 8).forEach(r => {
             const item = document.createElement('div');
             item.style.padding = '4px 8px';
-            item.style.fontSize = '10.5px';
+            item.style.fontSize = '10px';
             item.style.cursor = 'pointer';
             item.style.borderBottom = '1px solid #f1f5f9';
             item.textContent = r.name + (r.isPrivate ? ' 🔒' : '');
@@ -242,14 +258,14 @@ ipcRenderer.on('repo-members-data', (event, { repo, members }) => {
     if (repo !== currentSelectedRepo) return;
     discoveredMembersChips.replaceChildren();
     if (!members || members.length === 0) {
-        discoveredMembersChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Sin otros contribuidores listados.</span>';
+        discoveredMembersChips.innerHTML = '<span style="font-size: 9.5px; color: #94a3b8;">Sin otros miembros listados.</span>';
         return;
     }
     members.forEach(member => {
         const chip = document.createElement('button');
         chip.className = 'filter-pill';
-        chip.style.fontSize = '9.5px';
-        chip.style.padding = '2px 6px';
+        chip.style.fontSize = '9px';
+        chip.style.padding = '2px 5px';
         chip.textContent = '+ @' + member;
         chip.title = 'Clic para comenzar a monitorear a @' + member;
         chip.addEventListener('click', () => {
@@ -273,7 +289,6 @@ function quickAddWatchedDev(user) {
 function renderWatchedChips() {
     watchedDevsChips.replaceChildren();
     
-    // Si hay un repositorio seleccionado específicamente
     if (currentSelectedRepo) {
         const devs = (watchedDevsMap[currentSelectedRepo] || []);
         if (devs.length === 0) {
@@ -291,17 +306,16 @@ function renderWatchedChips() {
         return;
     }
 
-    // Resumen Global de todos los repositorios seguidos
     const reposWithDevs = Object.entries(watchedDevsMap).filter(([_, list]) => Array.isArray(list) && list.length > 0);
     if (reposWithDevs.length === 0) {
-        watchedDevsChips.innerHTML = '<span style="font-size: 9px; color: #94a3b8;">Aún no estás monitoreando a ningún compañero. Busca un repositorio arriba para comenzar.</span>';
+        watchedDevsChips.innerHTML = '<span style="font-size: 9px; color: #94a3b8;">Aún no estás monitoreando a ningún compañero.</span>';
         return;
     }
 
     reposWithDevs.forEach(([repoName, devs]) => {
         const repoBlock = document.createElement('div');
         repoBlock.style.width = '100%';
-        repoBlock.style.marginBottom = '4px';
+        repoBlock.style.marginBottom = '3px';
         repoBlock.style.padding = '3px 5px';
         repoBlock.style.background = '#ffffff';
         repoBlock.style.borderRadius = '5px';
@@ -343,10 +357,24 @@ function removeWatchedDevFromRepo(repoName, user) {
 }
 window.removeWatchedDevFromRepo = removeWatchedDevFromRepo;
 
-function removeWatchedDev(user) { if (!currentSelectedRepo || !watchedDevsMap[currentSelectedRepo]) return; watchedDevsMap[currentSelectedRepo] = watchedDevsMap[currentSelectedRepo].filter(u => u !== user); ipcRenderer.send("save-watched-devs", watchedDevsMap); renderWatchedChips(); } window.removeWatchedDev = removeWatchedDev;
+function removeWatchedDev(user) {
+    if (!currentSelectedRepo || !watchedDevsMap[currentSelectedRepo]) return;
+    watchedDevsMap[currentSelectedRepo] = watchedDevsMap[currentSelectedRepo].filter(u => u !== user);
+    ipcRenderer.send('save-watched-devs', watchedDevsMap);
+    renderWatchedChips();
+}
+window.removeWatchedDev = removeWatchedDev;
+
+function addWatchedDev() {
+    const user = inputWatchedUser.value.trim().replace(/^@/, '');
+    if (!currentSelectedRepo || !user) return;
+    quickAddWatchedDev(user);
+    inputWatchedUser.value = '';
+}
+window.addWatchedDev = addWatchedDev;
 
 // =========================================================================
-// ACCIONES 1-CLICK AUTÓNOMAS CON OPENAI LUNA Y WORKTREES
+// ACCIONES AUTÓNOMAS
 // =========================================================================
 
 function triggerAutoReview(url, btn) {
@@ -394,7 +422,7 @@ ipcRenderer.on('action-completed', (event, result) => {
 });
 
 // =========================================================================
-// RENDERIZADO DE TARJETAS CON ETIQUETAS MÚLTIPLES E HISTORIAL INTEGRADO
+// RENDERIZADO DE TARJETAS
 // =========================================================================
 
 function createAlertCard(a, viewed) {
@@ -425,7 +453,6 @@ function createAlertCard(a, viewed) {
     titleLink.addEventListener('click', (e) => { e.preventDefault(); openURL(a.url); });
     card.appendChild(titleLink);
 
-    // Fila de Etiquetas Múltiples
     const tagsRow = document.createElement('div');
     tagsRow.className = 'card-tags';
     const tags = a.tags || [];
@@ -477,7 +504,6 @@ function createAlertCard(a, viewed) {
         card.appendChild(stateEl);
     }
 
-    // Historial integrado (GitHub + Acciones IA locales)
     const historyBox = document.createElement('div');
     historyBox.className = 'pr-history-box';
     const timeline = [...(a.historyTimeline || [])];
