@@ -274,6 +274,63 @@
             gap: 3px;
         }
 
+
+        /* Badges de etiquetas múltiples */
+        .card-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 3px;
+            margin: 2px 0;
+        }
+        .tag-badge {
+            font-size: 8.5px;
+            font-weight: 600;
+            padding: 1px 5px;
+            border-radius: 4px;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .tag-conflict { background: #fee2e2; color: #991b1b; }
+        .tag-feedback { background: #fef3c7; color: #92400e; }
+        .tag-resolved { background: #d1fae5; color: #065f46; }
+        .tag-waiting { background: #e0f2fe; color: #075985; }
+        .tag-review { background: #ede9fe; color: #5b21b6; }
+
+        /* Historial por PR */
+        .btn-history-toggle {
+            background: transparent;
+            border: none;
+            color: #64748b;
+            font-size: 9px;
+            cursor: pointer;
+            padding: 1px 4px;
+            border-radius: 4px;
+        }
+        .btn-history-toggle:hover {
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+        .pr-history-box {
+            display: none;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 5px;
+            margin-top: 4px;
+            font-size: 9px;
+        }
+        .pr-history-box.open {
+            display: block;
+        }
+        .history-event {
+            padding: 2px 0;
+            border-bottom: 1px dashed #e2e8f0;
+            color: #475569;
+            line-height: 1.25;
+        }
+        .history-event:last-child { border-bottom: none; }
+
         /* Botones de acción 1-Click */
         .card-actions {
             display: flex;

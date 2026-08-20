@@ -165,7 +165,6 @@ async function runAutoPilotTasks(status) {
     const cfg = loadConfig();
     if (!cfg.autopilot_enabled || !github || !worktreeService) return;
 
-    // 1. Conflictos de Merge -> Auto-Resolve & Push
     for (const pr of status.merge_conflicts || []) {
         const key = `conflict_${pr.url}_${pr.updated_at}`;
         if (!autoPilotProcessing.has(key)) {
@@ -196,7 +195,6 @@ async function runAutoPilotTasks(status) {
         }
     }
 
-    // 2. PRs con Cambios Solicitados -> Auto-Fix & Push
     for (const pr of status.my_pr_activity || []) {
         if (pr.state && pr.state.includes('Cambios pedidos')) {
             const key = `fix_${pr.url}_${pr.updated_at}`;
@@ -478,22 +476,30 @@ ipcMain.on('show-context-menu', () => {
     menu.popup({ window: mainWindow });
 });
 
-
 let dragInitialWinPos = [0, 0];
 let dragInitialCursor = { x: 0, y: 0 };
 
-ipcMain.on('start-window-drag', (event, { x, y }) => {
-    if (mainWindow) {
+ipcMain.on('start-window-drag', (event, data) => {
+    if (mainWindow && data) {
         dragInitialWinPos = mainWindow.getPosition();
-        dragInitialCursor = { x, y };
+        dragInitialCursor = {
+            x: Math.round(Number(data.x) || 0),
+            y: Math.round(Number(data.y) || 0)
+        };
     }
 });
 
-ipcMain.on('window-drag-move', (event, { screenX, screenY }) => {
-    if (mainWindow) {
-        const dx = screenX - dragInitialCursor.x;
-        const dy = screenY - dragInitialCursor.y;
-        mainWindow.setPosition(dragInitialWinPos[0] + dx, dragInitialWinPos[1] + dy);
+ipcMain.on('window-drag-move', (event, data) => {
+    if (mainWindow && data) {
+        const curX = Math.round(Number(data.screenX) || 0);
+        const curY = Math.round(Number(data.screenY) || 0);
+        const dx = curX - dragInitialCursor.x;
+        const dy = curY - dragInitialCursor.y;
+        const newX = Math.round(dragInitialWinPos[0] + dx);
+        const newY = Math.round(dragInitialWinPos[1] + dy);
+        if (!isNaN(newX) && !isNaN(newY)) {
+            mainWindow.setPosition(newX, newY);
+        }
     }
 });
 

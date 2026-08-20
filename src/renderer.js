@@ -68,13 +68,13 @@ pet.addEventListener('pointerdown', (e) => {
     isDraggingPet = false;
     petDragStartX = e.screenX;
     petDragStartY = e.screenY;
-    ipcRenderer.send('start-window-drag', { x: e.screenX, y: e.screenY });
+    ipcRenderer.send('start-window-drag', { x: Math.round(e.screenX), y: Math.round(e.screenY) });
     
     const onPointerMove = (moveEv) => {
         const dist = Math.hypot(moveEv.screenX - petDragStartX, moveEv.screenY - petDragStartY);
         if (dist > 3) {
             isDraggingPet = true;
-            ipcRenderer.send('window-drag-move', { screenX: moveEv.screenX, screenY: moveEv.screenY });
+            ipcRenderer.send('window-drag-move', { screenX: Math.round(moveEv.screenX), screenY: Math.round(moveEv.screenY) });
         }
     };
 
@@ -204,7 +204,7 @@ ipcRenderer.on('action-completed', (event, result) => {
 });
 
 // =========================================================================
-// RENDERIZADO DE TARJETAS
+// RENDERIZADO DE TARJETAS CON ETIQUETAS MÚLTIPLES E HISTORIAL INDIVIDUAL
 // =========================================================================
 
 function createAlertCard(a, viewed) {
@@ -237,7 +237,46 @@ function createAlertCard(a, viewed) {
     titleLink.addEventListener('click', (e) => { e.preventDefault(); openURL(a.url); });
     card.appendChild(titleLink);
 
-    // Estado del PR
+    // Fila de Etiquetas Múltiples (Multi-Tags)
+    const tagsRow = document.createElement('div');
+    tagsRow.className = 'card-tags';
+    const tags = a.tags || [];
+
+    if (tags.includes('conflict')) {
+        const t = document.createElement('span');
+        t.className = 'tag-badge tag-conflict';
+        t.innerHTML = '💥 Conflictos';
+        tagsRow.appendChild(t);
+    }
+    if (tags.includes('resolved')) {
+        const t = document.createElement('span');
+        t.className = 'tag-badge tag-resolved';
+        t.innerHTML = '✅ Resuelto por IA';
+        tagsRow.appendChild(t);
+    }
+    if (tags.includes('feedback')) {
+        const t = document.createElement('span');
+        t.className = 'tag-badge tag-feedback';
+        t.innerHTML = '💬 Feedback pendiente';
+        tagsRow.appendChild(t);
+    }
+    if (tags.includes('waiting')) {
+        const t = document.createElement('span');
+        t.className = 'tag-badge tag-waiting';
+        t.innerHTML = '⏳ En espera';
+        tagsRow.appendChild(t);
+    }
+    if (tags.includes('review')) {
+        const t = document.createElement('span');
+        t.className = 'tag-badge tag-review';
+        t.innerHTML = '⏳ Revisión pedida';
+        tagsRow.appendChild(t);
+    }
+    if (tagsRow.children.length > 0) {
+        card.appendChild(tagsRow);
+    }
+
+    // Estado / Detalle
     if (a.state) {
         const stateEl = document.createElement('div');
         stateEl.className = 'card-state';
@@ -245,42 +284,60 @@ function createAlertCard(a, viewed) {
         card.appendChild(stateEl);
     }
 
-    // Acciones
+    // Historial desplegable por PR
+    const historyBox = document.createElement('div');
+    historyBox.className = 'pr-history-box';
+    const timeline = a.historyTimeline || [];
+    if (timeline.length > 0) {
+        timeline.forEach(ev => {
+            const h = document.createElement('div');
+            h.className = 'history-event';
+            const d = new Date(ev.date);
+            const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            h.innerHTML = `<strong>@${escapeHtml(ev.user)}</strong> (${time}): ${escapeHtml(ev.bodyExcerpt || ev.state || ev.type)}`;
+            historyBox.appendChild(h);
+        });
+    } else {
+        historyBox.innerHTML = '<div style="color: #94a3b8;">Sin eventos recientes registrados.</div>';
+    }
+    card.appendChild(historyBox);
+
+    // Acciones y Botón de Historial
     const actions = document.createElement('div');
     actions.className = 'card-actions';
 
-    if (a.type === 'resolved') {
-        const resolvedTag = document.createElement('span');
-        resolvedTag.style.fontSize = '9.5px';
-        resolvedTag.style.color = '#10b981';
-        resolvedTag.style.fontWeight = '600';
-        resolvedTag.textContent = '✨ Resuelto por IA';
-        actions.appendChild(resolvedTag);
-    } else {
-        if (a.has_conflict) {
-            const btn = document.createElement('button');
-            btn.className = 'btn-action-ai btn-action-conflict';
-            btn.innerHTML = '<span>🔀</span> Resolver & Push';
-            btn.addEventListener('click', () => triggerMergeConflictResolution(alertKey(a), btn));
-            actions.appendChild(btn);
-        }
-
-        if (a.type === 'my_pr_activity' && a.requires_fix) {
-            const btn = document.createElement('button');
-            btn.className = 'btn-action-ai';
-            btn.innerHTML = '<span>⚡</span> Auto-Fix & Push';
-            btn.addEventListener('click', () => triggerAutoFixFeedback(alertKey(a), btn));
-            actions.appendChild(btn);
-        }
-
-        if (a.type === 'review_required' || a.type === 're_review_needed') {
-            const btn = document.createElement('button');
-            btn.className = 'btn-action-ai';
-            btn.innerHTML = '<span>🤖</span> Revisar & Publicar';
-            btn.addEventListener('click', () => triggerAutoReview(alertKey(a), btn));
-            actions.appendChild(btn);
-        }
+    if (a.has_conflict) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-action-ai btn-action-conflict';
+        btn.innerHTML = '<span>🔀</span> Resolver & Push';
+        btn.addEventListener('click', () => triggerMergeConflictResolution(alertKey(a), btn));
+        actions.appendChild(btn);
     }
+
+    if (tags.includes('feedback') && a.requires_fix) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-action-ai';
+        btn.innerHTML = '<span>⚡</span> Auto-Fix & Push';
+        btn.addEventListener('click', () => triggerAutoFixFeedback(alertKey(a), btn));
+        actions.appendChild(btn);
+    }
+
+    if (tags.includes('review')) {
+        const btn = document.createElement('button');
+        btn.className = 'btn-action-ai';
+        btn.innerHTML = '<span>🤖</span> Revisar & Publicar';
+        btn.addEventListener('click', () => triggerAutoReview(alertKey(a), btn));
+        actions.appendChild(btn);
+    }
+
+    const histToggle = document.createElement('button');
+    histToggle.className = 'btn-history-toggle';
+    histToggle.textContent = '📜 Historial';
+    histToggle.addEventListener('click', () => {
+        historyBox.classList.toggle('open');
+        histToggle.textContent = historyBox.classList.contains('open') ? '▲ Ocultar' : '📜 Historial';
+    });
+    actions.appendChild(histToggle);
 
     const seenBtn = document.createElement('button');
     seenBtn.className = 'btn-seen-toggle';
@@ -310,22 +367,23 @@ function renderAlerts() {
         items = items.filter(a => (a.days_ago || 0) <= daysThreshold);
     }
 
-    // 3. Filtro de "En Espera" (Si no está marcado, oculta PRs míos donde solo estoy esperando revisión sin acciones)
-    if (!showWaiting && currentCategoryFilter !== 'all') {
+    // 3. Filtro de "En Espera"
+    if (!showWaiting && currentCategoryFilter !== 'all' && currentCategoryFilter !== 'resolved') {
         items = items.filter(a => !a.is_waiting_only);
     } else if (!showWaiting && currentCategoryFilter === 'all') {
-        items = items.filter(a => !a.is_waiting_only || a.has_conflict);
+        // En "Todos", muestra todo lo que tenga acción o esté resuelto
+        items = items.filter(a => !a.is_waiting_only || a.has_conflict || (a.tags && a.tags.includes('resolved')));
     }
 
-    // 4. Filtro por Categoría
+    // 4. Filtro por Categoría con Multi-Tags
     if (currentCategoryFilter === 'conflict') {
-        items = items.filter(a => a.type === 'merge_conflicts');
+        items = items.filter(a => a.tags && a.tags.includes('conflict'));
     } else if (currentCategoryFilter === 'feedback') {
-        items = items.filter(a => a.type === 'my_pr_activity' && a.requires_fix);
+        items = items.filter(a => a.tags && a.tags.includes('feedback'));
     } else if (currentCategoryFilter === 'review') {
-        items = items.filter(a => a.type === 'review_required' || a.type === 're_review_needed');
+        items = items.filter(a => a.tags && a.tags.includes('review'));
     } else if (currentCategoryFilter === 'resolved') {
-        items = items.filter(a => a.type === 'resolved');
+        items = items.filter(a => a.tags && a.tags.includes('resolved'));
     }
 
     if (items.length === 0) {
@@ -336,10 +394,9 @@ function renderAlerts() {
         items.forEach(a => alertsList.appendChild(createAlertCard(a, showViewed)));
     }
 
-    // Badge solo contabiliza PRs urgentes con acciones reales requeridas
     const actionableCount = [...alertStore.values()].filter(a => 
         !isViewed(a) && 
-        a.type !== 'resolved' && 
+        !(a.tags && a.tags.includes('resolved')) && 
         !a.is_waiting_only
     ).length;
     updateBadge(actionableCount);
@@ -356,7 +413,7 @@ function refreshStatus() {
 window.refreshStatus = refreshStatus;
 
 // =========================================================================
-// HISTORIAL DE LOGS DE ACCIONES IA
+// HISTORIAL DE ACCIONES IA GENERAL
 // =========================================================================
 
 function showActionLogs() {
@@ -520,10 +577,7 @@ ipcRenderer.on('show-ai-settings', () => showAISettings());
 ipcRenderer.on('show-action-logs', () => showActionLogs());
 
 ipcRenderer.on('status-update', (event, alerts) => {
-    const incoming = [];
-    ['merge_conflicts', 'my_pr_activity', 're_review_needed', 'review_required', 'resolved'].forEach(type => {
-        (alerts[type] || []).forEach(a => incoming.push({ ...a, type }));
-    });
+    const incoming = alerts.all_prs || [];
     const incomingKeys = new Set(incoming.map(alertKey));
     
     [...alertStore.keys()].forEach(key => {
@@ -531,11 +585,10 @@ ipcRenderer.on('status-update', (event, alerts) => {
     });
     incoming.forEach(a => alertStore.set(alertKey(a), a));
 
-    const active = incoming.filter(a => !isViewed(a) && a.type !== 'resolved' && !a.is_waiting_only);
-    const priority = active.some(a => a.type === 'merge_conflicts') ? 'state-conflict'
-        : active.some(a => a.type === 'my_pr_activity') ? 'state-action'
-        : active.some(a => a.type === 're_review_needed') ? 'state-rereview'
-        : active.some(a => a.type === 'review_required') ? 'state-alert' : 'state-happy';
+    const active = incoming.filter(a => !isViewed(a) && !(a.tags && a.tags.includes('resolved')) && !a.is_waiting_only);
+    const priority = active.some(a => a.tags && a.tags.includes('conflict')) ? 'state-conflict'
+        : active.some(a => a.tags && a.tags.includes('feedback')) ? 'state-action'
+        : active.some(a => a.tags && a.tags.includes('review')) ? 'state-alert' : 'state-happy';
     body.className = priority;
     renderAlerts();
     if (prevTotalAlerts >= 0 && active.length > prevTotalAlerts) triggerAlertAnimation();

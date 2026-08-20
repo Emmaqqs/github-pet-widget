@@ -183,6 +183,7 @@ class GitHubService {
 
             const username = this.username;
             const alerts = {
+                all_prs: [],
                 merge_conflicts: [],
                 review_required: [],
                 re_review_needed: [],
@@ -277,58 +278,39 @@ class GitHubService {
                 const daysAgo = Math.floor((now - latestActivityAt.getTime()) / (1000 * 60 * 60 * 24));
                 const url = pr.html_url || item.html_url;
 
-                const common = {
-                    title: pr.title || item.title || `PR #${item.number}`,
-                    url,
-                    updated_at: pr.updated_at,
-                    head_sha: headSha,
-                    head_branch: pr.head?.ref || 'dev',
-                    base_branch: pr.base?.ref || 'main',
-                    number: item.number,
-                    repository: `${owner}/${repo}`,
-                    author: loginOf(pr.user) || username,
-                    latest_activity_at: latestActivityAt.toISOString(),
-                    days_ago: Math.max(0, daysAgo),
-                    has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
-                };
+                const historyTimeline = events.slice(0, 8).map(ev => ({
+                    user: ev.user,
+                    type: ev.type,
+                    state: ev.state,
+                    date: ev.date.toISOString(),
+                    bodyExcerpt: (ev.body || '').slice(0, 100)
+                }));
 
-                // CICLO DE VIDA: Si está registrado como RESUELTO y no hay nueva actividad ni conflictos
+                const tags = [];
                 const resolvedRecord = resolvedPRs[url];
-                if (resolvedRecord && toDate(resolvedRecord.resolvedAt).getTime() >= latestActivityAt.getTime() && !common.has_conflict) {
-                    alerts.resolved.push({
-                        ...common,
-                        state: `✅ Resuelto por IA (${resolvedRecord.actionType || 'Fix'} pusheado)`,
-                        resolved_info: resolvedRecord
-                    });
-                    continue;
-                }
+                const isResolved = Boolean(resolvedRecord && toDate(resolvedRecord.resolvedAt).getTime() >= latestActivityAt.getTime() && !(pr.mergeable === false || pr.mergeable_state === 'dirty'));
 
-                // 1. Conflictos de Merge
-                if (pr.mergeable === false || pr.mergeable_state === 'dirty') {
-                    if (includeSeen || !seen) {
-                        alerts.merge_conflicts.push({
-                            ...common,
-                            state: '💥 Conflictos de Merge (Bloqueado)',
-                        });
-                    }
-                }
+                if (isResolved) tags.push('resolved');
+                if (pr.mergeable === false || pr.mergeable_state === 'dirty') tags.push('conflict');
+                if (isSameUser(pr.user, username)) tags.push('my_pr');
 
-                // 2. CASO C: Mi propio PR
+                let detail = 'Abierto';
+                let requiresFix = false;
+                let isWaitingOnly = false;
+
                 if (isSameUser(pr.user, username)) {
                     const otherFormal = others.find(e => e.type === 'review' && ['CHANGES_REQUESTED', 'APPROVED'].includes(e.state));
                     const newOther = latestOther && (!latestMine || latestOther.date > latestMine.date);
-                    
-                    let detail = null;
-                    let requiresFix = true;
-                    let isWaitingOnly = false;
 
                     if (otherFormal?.state === 'CHANGES_REQUESTED') {
                         detail = `Cambios pedidos por @${otherFormal.user} ⚠️`;
                         requiresFix = true;
+                        tags.push('feedback');
                     } else if (otherFormal?.state === 'APPROVED') {
                         detail = `Aprobado por @${otherFormal.user} ✅ (Sin bloqueantes)`;
                         requiresFix = false;
                         isWaitingOnly = true;
+                        tags.push('waiting');
                     } else if (newOther) {
                         const bodyText = (latestOther.body || '').toLowerCase();
                         const hasPending = bodyText.includes('pero') || bodyText.includes('falta') || bodyText.includes('cambia') || bodyText.includes('non-block');
@@ -338,36 +320,79 @@ class GitHubService {
                             detail = `Comentario de @${latestOther.user} ✅ (Aprobado)`;
                             requiresFix = false;
                             isWaitingOnly = true;
+                            tags.push('waiting');
                         } else {
                             detail = `Comentario de @${latestOther.user} 💬`;
                             requiresFix = true;
+                            tags.push('feedback');
                         }
                     } else {
-                        // PR abierto esperando a que alguien lo revise; no requiere acción de mi parte
-                        detail = `Abierto y esperando revisión ⏳`;
+                        detail = isResolved ? `Resuelto por IA (En espera) ⏳` : `Abierto y esperando revisión ⏳`;
                         requiresFix = false;
                         isWaitingOnly = true;
+                        tags.push('waiting');
                     }
 
+                    const prData = {
+                        title: pr.title || item.title || `PR #${item.number}`,
+                        url,
+                        updated_at: pr.updated_at,
+                        head_sha: headSha,
+                        head_branch: pr.head?.ref || 'dev',
+                        base_branch: pr.base?.ref || 'main',
+                        number: item.number,
+                        repository: `${owner}/${repo}`,
+                        author: loginOf(pr.user) || username,
+                        latest_activity_at: latestActivityAt.toISOString(),
+                        days_ago: Math.max(0, daysAgo),
+                        has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
+                        state: detail,
+                        requires_fix: requiresFix,
+                        is_waiting_only: isWaitingOnly,
+                        tags,
+                        historyTimeline,
+                        resolved_info: resolvedRecord || null
+                    };
+
                     if (includeSeen || !seen) {
-                        alerts.my_pr_activity.push({
-                            ...common,
-                            state: detail,
-                            requires_fix: requiresFix,
-                            is_waiting_only: isWaitingOnly
-                        });
+                        alerts.my_pr_activity.push(prData);
+                        alerts.all_prs.push(prData);
+                        if (tags.includes('conflict')) alerts.merge_conflicts.push(prData);
+                        if (tags.includes('resolved')) alerts.resolved.push(prData);
                     }
                     continue;
                 }
 
-                // 3. CASOS A y B: PRs de otros
+                // PRs de otros
                 const requested = (pr.requested_reviewers || []).some(r => isSameUser(r, username));
                 if (requested && !latestMine) {
+                    detail = 'Revisión Requerida: Asignado ⏳';
+                    tags.push('review');
+                    const prData = {
+                        title: pr.title || item.title || `PR #${item.number}`,
+                        url,
+                        updated_at: pr.updated_at,
+                        head_sha: headSha,
+                        head_branch: pr.head?.ref || 'dev',
+                        base_branch: pr.base?.ref || 'main',
+                        number: item.number,
+                        repository: `${owner}/${repo}`,
+                        author: loginOf(pr.user) || username,
+                        latest_activity_at: latestActivityAt.toISOString(),
+                        days_ago: Math.max(0, daysAgo),
+                        has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
+                        state: detail,
+                        requires_fix: false,
+                        is_waiting_only: false,
+                        tags,
+                        historyTimeline,
+                        resolved_info: resolvedRecord || null
+                    };
                     if (includeSeen || !seen) {
-                        alerts.review_required.push({
-                            ...common,
-                            state: 'Revisión Requerida: Asignado ⏳',
-                        });
+                        alerts.review_required.push(prData);
+                        alerts.all_prs.push(prData);
+                        if (tags.includes('conflict')) alerts.merge_conflicts.push(prData);
+                        if (tags.includes('resolved')) alerts.resolved.push(prData);
                     }
                     continue;
                 }
@@ -377,21 +402,40 @@ class GitHubService {
                         || Boolean(toDate(pr.updated_at) > latestMine.date);
                     const newOtherActivity = latestOther && latestOther.date > latestMine.date;
 
-                    if ((newCommits || newOtherActivity) && (includeSeen || !seen)) {
-                        let detail = 'Commits nuevos 🔄';
-                        if (newOtherActivity && !newCommits) detail = `Respuesta de @${latestOther.user} 💬`;
-                        if (newOtherActivity && newCommits) detail = `Commits o respuesta de @${latestOther.user} 💬`;
-                        alerts.re_review_needed.push({
-                            ...common,
-                            state: `Re-revisión Pendiente: ${detail}`,
-                        });
+                    if (newCommits || newOtherActivity) {
+                        detail = 'Re-revisión Pendiente 🔄';
+                        tags.push('re_review');
+                        const prData = {
+                            title: pr.title || item.title || `PR #${item.number}`,
+                            url,
+                            updated_at: pr.updated_at,
+                            head_sha: headSha,
+                            head_branch: pr.head?.ref || 'dev',
+                            base_branch: pr.base?.ref || 'main',
+                            number: item.number,
+                            repository: `${owner}/${repo}`,
+                            author: loginOf(pr.user) || username,
+                            latest_activity_at: latestActivityAt.toISOString(),
+                            days_ago: Math.max(0, daysAgo),
+                            has_conflict: pr.mergeable === false || pr.mergeable_state === 'dirty',
+                            state: detail,
+                            requires_fix: false,
+                            is_waiting_only: false,
+                            tags,
+                            historyTimeline,
+                            resolved_info: resolvedRecord || null
+                        };
+                        if (includeSeen || !seen) {
+                            alerts.re_review_needed.push(prData);
+                            alerts.all_prs.push(prData);
+                            if (tags.includes('conflict')) alerts.merge_conflicts.push(prData);
+                            if (tags.includes('resolved')) alerts.resolved.push(prData);
+                        }
                     }
                 }
             }
 
-            for (const key of ['merge_conflicts', 'review_required', 're_review_needed', 'my_pr_activity', 'resolved']) {
-                alerts[key].sort((a, b) => toDate(b.latest_activity_at || b.updated_at) - toDate(a.latest_activity_at || a.updated_at));
-            }
+            alerts.all_prs.sort((a, b) => toDate(b.latest_activity_at || b.updated_at) - toDate(a.latest_activity_at || a.updated_at));
             alerts.meta.rateLimit = this.lastRateLimit;
             return alerts;
         } catch (error) {
